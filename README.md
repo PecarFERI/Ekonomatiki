@@ -1,4 +1,4 @@
 # Ekonomatiki
 Projekt FERI RIT-UN Umetna inteligenca pri avtonomni vožnji
 
-Main branch - namenjen končnim delujočim produktom oziroma programom
+Develop branch - namenjen in progress delu na programih oziroma produktih
