@@ -50,3 +50,5 @@ Pri našem projektu se bodo nevronske mreže na podlagi testnih označenih podat
 Pri predmetu uvod v računalniško geometrijo je glavna naloga izdelava 3D modelov za razne naprave, kot so držala za naprave za zajemanje, držalo za napravo za povratne informacije in podobno
 
 Pri našem projektu je to 3D model držala za telefon, ki je naša naprava za zajemanje GPS podatkov
+
+#### Za vsak predmet je v github repositoriju poseben feature branch, v katerem se nahaja zbirka z programi, datotekami in dokumentacijo za vsak predmet
