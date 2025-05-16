@@ -18,7 +18,7 @@ from PIL import Image
 class GPSMappingApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("GPS Tool")
+        self.root.title("Program za obdelavo podatkov")
         self.screen_width = root.winfo_screenwidth()
         self.screen_height = root.winfo_screenheight()
         self.screen_height -= 80
@@ -45,7 +45,7 @@ class GPSMappingApp:
             "#00838F",
             "#689F38",
             "#D84315",
-            "#BDBDBD",
+            "#AFB42B",
             "#B71C1C",
             "#0277BD",
             "#558B2F",
