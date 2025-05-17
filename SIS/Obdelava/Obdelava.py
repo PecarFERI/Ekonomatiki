@@ -238,6 +238,43 @@ class GPSMappingApp:
         self.output_file_entry.configure(fg_color=self.backup_color)
         self.input_folder_entry.configure(fg_color=self.backup_color)
 
+    def run_generation(self):
+        if self.input_folder_entry.get():
+            self.process_gpx_folder()
+        else:
+            input_file = self.input_file_entry.get()
+            output_file_name = self.output_file_entry.get()
+            self.generate_map(input_file, output_file_name)
+
+    def choose_input_file(self):
+        file_path = filedialog.askopenfilename(title="Choose Input GPS File", filetypes=[("GPX Files", "*.gpx")])
+        if file_path:
+            self.input_file_entry.delete(0, ctk.END)
+            self.input_file_entry.insert(0, file_path)
+
+    def choose_input_folder(self):
+        folder_path = filedialog.askdirectory(title="Select Folder Containing GPX Files")
+        if folder_path:
+            self.input_folder_entry.delete(0, ctk.END)
+            self.input_folder_entry.insert(0, folder_path)
+
+    def process_gpx_folder(self):
+        folder_path = self.input_folder_entry.get()
+        if not folder_path:
+            print("No folder selected. Exiting...")
+            return
+
+        gpx_files = [f for f in os.listdir(folder_path) if f.endswith('.gpx')]
+
+        if not gpx_files:
+            print("No .gpx files found in the selected folder.")
+            return
+
+        for gpx_file in gpx_files:
+            file_path = os.path.join(folder_path, gpx_file)
+            output_file_name = gpx_file.replace(".gpx", "")
+            self.generate_map(file_path, output_file_name)
+
     def create_map(self, gps_data, output_file):
         random_index = random.randint(0, 14)
         random_color = self.colors[random_index]
