@@ -275,6 +275,43 @@ class GPSMappingApp:
             output_file_name = gpx_file.replace(".gpx", "")
             self.generate_map(file_path, output_file_name)
 
+    def generate_map(self, input_file, output_file_name):
+        if not input_file or not output_file_name:
+            messagebox.showerror("Error", "Please choose both input file and provide output file name.")
+            return
+
+        try:
+            gps_data, total_distance, average_speed, max_speed, elevation_change, total_time = self.process_gps_data(
+                input_file)
+
+            gps_map_dir = os.path.dirname(os.path.abspath(__file__))
+
+            parent_dir = os.path.dirname(gps_map_dir)
+
+            parent2_dir = os.path.dirname(parent_dir)
+
+            gps_maps_output_path = os.path.join(parent2_dir, 'GPS Maps')
+
+            gps_maps_output_path = os.path.normpath(gps_maps_output_path)
+
+            output_directory = gps_maps_output_path
+            if not os.path.exists(output_directory):
+                os.makedirs(output_directory)
+            output_path = os.path.join(output_directory, f"{output_file_name}.html")
+
+            self.create_map(gps_data, output_path)
+
+            self.total_distance_label.configure(text=f"Total Distance: {total_distance:.2f} km")
+            self.average_speed_label.configure(text=f"Average Speed: {average_speed:.2f} km/h")
+            self.max_speed_label.configure(text=f"Highest Speed: {max_speed:.2f} km/h")
+            self.elevation_change_label.configure(text=f"Elevation Change: {elevation_change:.2f} m")
+            self.total_time_label.configure(text=f"Total time: {total_time:.2f} min")
+
+            self.map_saved_label.configure(text=f"Map saved to: {output_path}")
+
+        except Exception as e:
+            messagebox.showerror("Error", f"An error occurred: {str(e)}")
+
     def create_map(self, gps_data, output_file):
         random_index = random.randint(0, 14)
         random_color = self.colors[random_index]
