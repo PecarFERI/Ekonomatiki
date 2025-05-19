@@ -275,6 +275,23 @@ class GPSMappingApp:
             output_file_name = gpx_file.replace(".gpx", "")
             self.generate_map(file_path, output_file_name)
 
+    def remove_outliers(self, speeds, timestamps, z_threshold=2.0):
+        if not speeds:
+            return speeds, timestamps
+
+        speeds_array = np.array(speeds)
+        mean_speed = np.mean(speeds_array)
+        std_dev = np.std(speeds_array)
+
+        filtered_indices = [
+            i for i, s in enumerate(speeds) if abs((s - mean_speed) / std_dev) <= z_threshold
+        ]
+
+        filtered_speeds = [speeds[i] for i in filtered_indices]
+        filtered_timestamps = [timestamps[i] for i in filtered_indices]
+
+        return filtered_speeds, filtered_timestamps
+
     def generate_map(self, input_file, output_file_name):
         if not input_file or not output_file_name:
             messagebox.showerror("Error", "Please choose both input file and provide output file name.")
