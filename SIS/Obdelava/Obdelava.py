@@ -329,6 +329,192 @@ class GPSMappingApp:
         except Exception as e:
             messagebox.showerror("Error", f"An error occurred: {str(e)}")
 
+    def process_gps_data(self, gpx_file):
+        for widget in self.graph_frame.winfo_children():
+            widget.destroy()
+        for widget in self.acceleration_graph_frame.winfo_children():
+            widget.destroy()
+
+        with open(gpx_file, "r", encoding="utf-8") as f:
+            gpx = gpxpy.parse(f)
+
+        coordinates = []
+        timestamps = []
+        elevations = []
+        distances = []
+        speeds = []
+        starting_speed = 0
+        speeds.append(starting_speed)
+
+        for track in gpx.tracks:
+            for segment in track.segments:
+                for i, point in enumerate(segment.points):
+                    coordinates.append((point.latitude, point.longitude))
+                    timestamps.append(point.time)
+                    elevations.append(point.elevation)
+
+                    if i > 0:
+                        dist = geodesic(coordinates[i - 1], coordinates[i]).meters
+                        time_diff = (timestamps[i] - timestamps[i - 1]).total_seconds()
+
+                        if time_diff > 0:
+                            speed = (dist / time_diff) * 3.6
+                            speeds.append(speed)
+                            distances.append(dist)
+
+        total_distance = sum(distances) / 1000
+        total_time = (timestamps[-1] - timestamps[0]).total_seconds() / 3600
+        average_speed = (total_distance / total_time) if total_time > 0 else 0
+        filtered_speeds, filtered_timestamps = self.remove_outliers(speeds, timestamps)
+        max_speed = max(filtered_speeds, default=0)
+        elevation_change = max(elevations) - min(elevations)
+
+        difference_amount = 0
+
+        if (len(filtered_speeds) < len(filtered_timestamps)):
+            difference_amount = len(filtered_timestamps) - len(filtered_speeds)
+        elif (len(filtered_speeds) > len(filtered_timestamps)):
+            difference_amount = len(filtered_speeds) - len(filtered_timestamps)
+
+        fig, ax = plt.subplots(figsize=(10, 5))
+
+        fig.patch.set_facecolor(self.main_color)
+        ax.set_facecolor(self.main_color)
+
+        start_time = filtered_timestamps[0]
+        timestamps_for_plot = [(timestamp - start_time).total_seconds() for timestamp in
+                               filtered_timestamps[difference_amount:]]
+        plt.plot(timestamps_for_plot, filtered_speeds, label="Speed at Timestamp", color=self.text_color)
+
+        ax.set_xlabel('Timestamp', color='#32CD32', font='Segoe UI', fontweight='bold')
+        ax.set_ylabel('Speed (km/h)', color='#EF5350', font='Segoe UI', fontweight='bold')
+        ax.set_title('Speed vs Time', color=self.text_color, font='Segoe UI', fontweight='bold', fontsize=14)
+        ax.tick_params(axis='x', colors='#32CD32')
+        ax.tick_params(axis='y', colors='#EF5350')
+
+        ax.grid(True, color=self.text_color, linestyle='--', linewidth=0.5)
+
+        ax.legend(frameon=False, loc='best', fontsize=10, facecolor=self.main_color, edgecolor=self.text_color,
+                  labelcolor=self.text_color)
+
+        canvas = FigureCanvasTkAgg(fig, master=self.graph_frame)
+        canvas.get_tk_widget().pack(fill=ctk.BOTH, expand=True)
+        canvas.draw()
+
+        fig2, ax2 = plt.subplots(figsize=(10, 5))
+
+        fig2.patch.set_facecolor(self.main_color)
+        ax2.set_facecolor(self.main_color)
+
+        acceleration_values = []
+        acceleration_timestamps = []
+
+        for i in range(1, len(filtered_speeds)):
+            speed_difference = filtered_speeds[i] - filtered_speeds[i - 1]
+            timestamp = filtered_timestamps[difference_amount + i]
+
+            if speed_difference >= 2:
+                acceleration_values.append(1)
+            elif speed_difference <= -2:
+                acceleration_values.append(-1)
+            else:
+                acceleration_values.append(0)
+
+            acceleration_timestamps.append((timestamp - start_time).total_seconds())
+
+        ax2.plot(acceleration_timestamps, acceleration_values, label="Acceleration", color=self.text_color, marker='o',
+                 linestyle='None', markersize=3)
+
+        ax2.set_xlabel('Timestamp', color='#00B0FF', font='Segoe UI', fontweight='bold')
+        ax2.set_ylabel('Acceleration', color='#FF00FF', font='Segoe UI', fontweight='bold')
+        ax2.set_title('Acceleration vs Time', color=self.text_color, font='Segoe UI', fontweight='bold', fontsize=14)
+        ax2.tick_params(axis='x', colors='#00B0FF')
+        ax2.tick_params(axis='y', colors='#FF00FF')
+
+        ax2.grid(True, color=self.text_color, linestyle='--', linewidth=0.5)
+
+        canvas2 = FigureCanvasTkAgg(fig2, master=self.acceleration_graph_frame)
+        canvas2.get_tk_widget().pack(fill=ctk.BOTH, expand=True)
+        canvas2.draw()
+
+        start_of_zone = 0
+        end_of_zone = 0
+        acceleration_zones = []
+        braking_zones = []
+        cruising_zones = []
+        state = 0
+
+        for i in range(1, len(acceleration_values)):
+            if acceleration_values[i] == 1:
+                if state == 0:
+                    end_of_zone = acceleration_timestamps[i]
+                    cruising_zones.append((start_of_zone, end_of_zone))
+                    state = 1
+                    start_of_zone = acceleration_timestamps[i]
+                elif state == -1:
+                    end_of_zone = acceleration_timestamps[i]
+                    braking_zones.append((start_of_zone, end_of_zone))
+                    state = 1
+                    start_of_zone = acceleration_timestamps[i]
+                else:
+                    continue
+            elif acceleration_values[i] == -1:
+                if state == 0:
+                    end_of_zone = acceleration_timestamps[i]
+                    cruising_zones.append((start_of_zone, end_of_zone))
+                    state = -1
+                    start_of_zone = acceleration_timestamps[i]
+                elif state == 1:
+                    end_of_zone = acceleration_timestamps[i]
+                    acceleration_zones.append((start_of_zone, end_of_zone))
+                    state = -1
+                    start_of_zone = acceleration_timestamps[i]
+                else:
+                    continue
+            else:
+                if state == 1:
+                    end_of_zone = acceleration_timestamps[i]
+                    acceleration_zones.append((start_of_zone, end_of_zone))
+                    state = 0
+                    start_of_zone = acceleration_timestamps[i]
+                elif state == -1:
+                    end_of_zone = acceleration_timestamps[i]
+                    braking_zones.append((start_of_zone, end_of_zone))
+                    state = 0
+                    start_of_zone = acceleration_timestamps[i]
+                else:
+                    continue
+
+        acceleration_output = "Acceleration zones: " + ", ".join(
+            [f"{start} - {end}" for start, end in acceleration_zones])
+        braking_output = "Braking zones: " + ", ".join([f"{start} - {end}" for start, end in braking_zones])
+        cruising_output = "Cruising zones: " + ", ".join([f"{start} - {end}" for start, end in cruising_zones])
+
+        gpx_file_name = os.path.basename(gpx_file)
+
+        output_file_name = gpx_file_name.replace(".gpx", ".txt")
+
+        gps_map_dir = os.path.dirname(os.path.abspath(__file__))
+
+        parent_dir = os.path.dirname(gps_map_dir)
+
+        parent2_dir = os.path.dirname(parent_dir)
+
+        gps_analysis_path = os.path.join(parent2_dir, 'GPS Analysis', output_file_name)
+
+        gps_analysis_path = os.path.normpath(gps_analysis_path)
+
+        file_path = gps_analysis_path
+
+        with open(file_path, "w") as file:
+            file.write(acceleration_output + "\n" + "\n")
+            file.write(braking_output + "\n" + "\n")
+            file.write(cruising_output + "\n" + "\n")
+
+        total_time = total_time * 60
+
+        return coordinates, total_distance, average_speed, max_speed, elevation_change, total_time
+
     def create_map(self, gps_data, output_file):
         random_index = random.randint(0, 14)
         random_color = self.colors[random_index]
