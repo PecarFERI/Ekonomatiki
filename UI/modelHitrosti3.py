@@ -1,3 +1,4 @@
+import gc
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -365,7 +366,6 @@ def plot_loss(losses):
 
 
 def clear_data():
-    """Clear all training data"""
     global examples_X, examples_y
 
     if messagebox.askyesno("Confirm", "Are you sure you want to clear all training data?"):
@@ -374,6 +374,22 @@ def clear_data():
         status_label.config(text="All training data cleared")
         update_plot()
 
+
+def clear_memory():
+    try:
+        torch.cuda.empty_cache()  #bil model na CUDA
+    except:
+        pass
+
+    #garbage collection
+    gc.collect()
+    status_label.config(text=status_label.cget("text") + " | Memory cleared")
+
+
+def exit_application():
+    if messagebox.askyesno("Exit", "Are you sure you want to exit?"):
+        clear_memory()
+        window.destroy()
 
 window = tk.Tk()
 window.title("Speed Economy Model")
@@ -435,16 +451,15 @@ result_label.pack(fill="both", expand=True, padx=5, pady=5)
 plot_frame = ttk.LabelFrame(visualization_tab, text="Speed Patterns")
 plot_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-# Status bar
 status_label = tk.Label(window, text="Ready", bd=1, relief=tk.SUNKEN, anchor=tk.W)
 status_label.grid(row=10, column=0, columnspan=2, sticky="we")
 
-# Configure grid weights
 window.grid_rowconfigure(0, weight=1)
 window.grid_columnconfigure(0, weight=1)
 
-# Update plot on start
 update_plot()
+window.protocol("WM_DELETE_WINDOW", exit_application)
 
-# Start the GUI
+torch.cuda.empty_cache()
+
 window.mainloop()
