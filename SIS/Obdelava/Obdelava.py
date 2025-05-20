@@ -18,15 +18,15 @@ from PIL import Image
 class GPSMappingApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Program za obdelavo podatkov")
+        self.root.title("GPS Tool")
         self.screen_width = root.winfo_screenwidth()
         self.screen_height = root.winfo_screenheight()
         self.screen_height -= 80
         self.root.geometry(f"{self.screen_width}x{self.screen_height}+0+0")
         ctk.set_appearance_mode("Light")
-        self.main_color = "#DADDE1"
-        self.text_color = "#2C2C2C"
-        self.backup_color = "#E3E6E9"
+        self.main_color = "#FFFFFF"
+        self.text_color = "black"
+        self.backup_color = "#FAFAFA"
         self.current_theme = "light"
         self.create_widgets()
         self.project_root = os.path.dirname(os.path.abspath(__file__))
@@ -45,7 +45,7 @@ class GPSMappingApp:
             "#00838F",
             "#689F38",
             "#D84315",
-            "#AFB42B",
+            "#BDBDBD",
             "#B71C1C",
             "#0277BD",
             "#558B2F",
@@ -109,21 +109,21 @@ class GPSMappingApp:
         self.toggle_button.grid(row=0, column=6, padx=10, pady=10, sticky="ne")
 
         self.input_file_label = ctk.CTkLabel(self.main_frame, text="Input GPS File:", width=200,
-                                             font=("Segoe UI", 14, "bold"), text_color="#00FF00")
+                                             font=("Segoe UI", 14, "bold"), text_color="#32CD32")
         self.input_file_label.grid(row=1, column=0, columnspan=3)
         self.input_file_entry = ctk.CTkEntry(self.main_frame, width=150, font=("Segoe UI", 10, "bold"),
-                                             fg_color=self.backup_color, text_color="#00FF00")
+                                             fg_color=self.backup_color, text_color="#32CD32")
         self.input_file_entry.grid(row=1, column=3, pady=5, columnspan=1)
         self.input_file_button = ctk.CTkButton(self.main_frame, text="Choose File", font=("Segoe UI", 12, "bold"),
                                                command=self.choose_input_file, fg_color=self.backup_color,
-                                               hover_color="#4CAF50", text_color=self.text_color)
+                                               hover_color="#81C784", text_color=self.text_color)
         self.input_file_button.grid(row=1, column=4, columnspan=3)
 
         self.output_file_label = ctk.CTkLabel(self.main_frame, text="Output Map Name:", font=("Segoe UI", 14, "bold"),
-                                              width=200, text_color="#E53935")
+                                              width=200, text_color="#EF5350")
         self.output_file_label.grid(row=2, column=0, pady=10, columnspan=3)
         self.output_file_entry = ctk.CTkEntry(self.main_frame, width=150, font=("Segoe UI", 12, "bold"),
-                                              fg_color=self.backup_color, text_color="#E53935")
+                                              fg_color=self.backup_color, text_color="#EF5350")
         self.output_file_entry.grid(row=2, column=3, pady=5)
 
         self.input_folder_label = ctk.CTkLabel(self.main_frame, text="Input GPS Folder:", width=200,
@@ -162,11 +162,11 @@ class GPSMappingApp:
         self.total_distance_label.grid(row=0, column=1, pady=5)
 
         self.average_speed_label = ctk.CTkLabel(self.stats_frame, text="Average Speed: -- km/h",
-                                                font=("Segoe UI", 12, "bold"), text_color="#A4FF00")
+                                                font=("Segoe UI", 12, "bold"), text_color="#7CB518")
         self.average_speed_label.grid(row=1, column=1, pady=5)
 
         self.max_speed_label = ctk.CTkLabel(self.stats_frame, text="Highest Speed: -- km/h",
-                                            font=("Segoe UI", 12, "bold"), text_color="#FFEB3B")
+                                            font=("Segoe UI", 12, "bold"), text_color="#FFC107")
         self.max_speed_label.grid(row=0, column=3, pady=5)
 
         self.elevation_change_label = ctk.CTkLabel(self.stats_frame, text="Elevation Change: -- m",
@@ -275,23 +275,6 @@ class GPSMappingApp:
             output_file_name = gpx_file.replace(".gpx", "")
             self.generate_map(file_path, output_file_name)
 
-    def remove_outliers(self, speeds, timestamps, z_threshold=2.0):
-        if not speeds:
-            return speeds, timestamps
-
-        speeds_array = np.array(speeds)
-        mean_speed = np.mean(speeds_array)
-        std_dev = np.std(speeds_array)
-
-        filtered_indices = [
-            i for i, s in enumerate(speeds) if abs((s - mean_speed) / std_dev) <= z_threshold
-        ]
-
-        filtered_speeds = [speeds[i] for i in filtered_indices]
-        filtered_timestamps = [timestamps[i] for i in filtered_indices]
-
-        return filtered_speeds, filtered_timestamps
-
     def generate_map(self, input_file, output_file_name):
         if not input_file or not output_file_name:
             messagebox.showerror("Error", "Please choose both input file and provide output file name.")
@@ -328,6 +311,23 @@ class GPSMappingApp:
 
         except Exception as e:
             messagebox.showerror("Error", f"An error occurred: {str(e)}")
+
+    def remove_outliers(self, speeds, timestamps, z_threshold=2.0):
+        if not speeds:
+            return speeds, timestamps
+
+        speeds_array = np.array(speeds)
+        mean_speed = np.mean(speeds_array)
+        std_dev = np.std(speeds_array)
+
+        filtered_indices = [
+            i for i, s in enumerate(speeds) if abs((s - mean_speed) / std_dev) <= z_threshold
+        ]
+
+        filtered_speeds = [speeds[i] for i in filtered_indices]
+        filtered_timestamps = [timestamps[i] for i in filtered_indices]
+
+        return filtered_speeds, filtered_timestamps
 
     def process_gps_data(self, gpx_file):
         for widget in self.graph_frame.winfo_children():
