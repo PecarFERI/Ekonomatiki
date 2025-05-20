@@ -432,6 +432,23 @@ class GPSMappingApp:
         min_duration = 5
         stable_zones = []
 
+        if zone_ratings:
+            current_zone = zone_ratings[0][1]
+            zone_start_idx = 0
+
+            for i in range(1, len(zone_ratings)):
+                time, zone = zone_ratings[i]
+                if zone != current_zone:
+                    duration = i - zone_start_idx
+                    if duration >= min_duration:
+                        stable_zones.append((zone_ratings[zone_start_idx][0], zone_ratings[i - 1][0], current_zone))
+                        current_zone = zone
+                        zone_start_idx = i
+                    else:
+                        pass
+
+            stable_zones.append((zone_ratings[zone_start_idx][0], zone_ratings[-1][0], current_zone))
+
         fig2, ax2 = plt.subplots(figsize=(10, 5))
 
         fig2.patch.set_facecolor(self.main_color)
