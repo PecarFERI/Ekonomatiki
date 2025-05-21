@@ -23,16 +23,15 @@ class GPSMappingApp:
         self.screen_height = root.winfo_screenheight()
         self.screen_height -= 80
         self.root.geometry(f"{self.screen_width}x{self.screen_height}+0+0")
-        ctk.set_appearance_mode("Light")
+        self.root.configure(fg="#FFFFFF")
         self.main_color = "#FFFFFF"
         self.text_color = "black"
-        self.backup_color = "#FAFAFA"
+        self.backup_color = "#FBFBFB"
         self.current_theme = "light"
         self.create_widgets()
         self.project_root = os.path.dirname(os.path.abspath(__file__))
 
     def create_widgets(self):
-        ctk.set_appearance_mode("light")
 
         self.colors = [
             "#007F00",
@@ -66,8 +65,8 @@ class GPSMappingApp:
             size=(24, 24)
         )
 
-        self.main_frame = ctk.CTkFrame(self.root, corner_radius=10, fg_color=self.main_color)
-        self.main_frame.pack(fill=ctk.BOTH, expand=True, padx=20, pady=20)
+        self.main_frame = ctk.CTkFrame(self.root, fg_color="#FFFFFF")
+        self.main_frame.pack(fill=ctk.BOTH, expand=True)
 
         self.main_frame.grid_rowconfigure(0, weight=0)
         self.main_frame.grid_rowconfigure(1, weight=0)
@@ -186,10 +185,10 @@ class GPSMappingApp:
         self.map_saved_label.grid(row=7, column=0, columnspan=7, pady=10)
 
         self.graph_frame = ctk.CTkFrame(self.main_frame, corner_radius=10, fg_color=self.backup_color)
-        self.graph_frame.grid(row=8, column=0, columnspan=3, pady=10, sticky="nsew")
+        self.graph_frame.grid(row=8, column=0, columnspan=3, pady=20, padx=20, sticky="nsew")
 
         self.acceleration_graph_frame = ctk.CTkFrame(self.main_frame, corner_radius=10, fg_color=self.backup_color)
-        self.acceleration_graph_frame.grid(row=8, column=4, columnspan=3, pady=10, sticky="nsew")
+        self.acceleration_graph_frame.grid(row=8, column=4, columnspan=3, pady=20, padx=20, sticky="nsew")
 
         self.graph_frame.grid_rowconfigure(0, weight=1)
         self.graph_frame.grid_columnconfigure(0, weight=1)
@@ -415,13 +414,13 @@ class GPSMappingApp:
             else:
                 percent_change = abs((curr_speed - prev_speed) / prev_speed) * 100
 
-                if percent_change <= 3:
+                if percent_change <= 2:
                     zone = 1
-                elif percent_change <= 7:
+                elif percent_change <= 6:
                     zone = 2
-                elif percent_change <= 15:
+                elif percent_change <= 10:
                     zone = 3
-                elif percent_change <= 25:
+                elif percent_change <= 18:
                     zone = 4
                 else:
                     zone = 5
