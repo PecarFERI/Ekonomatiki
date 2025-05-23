@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import random
 from PIL import Image
+import csv
 
 
 class GPSMappingApp:
@@ -359,7 +360,7 @@ class GPSMappingApp:
         total_distance = sum(distances) / 1000
         total_time = (timestamps[-1] - timestamps[0]).total_seconds() / 3600
         average_speed = (total_distance / total_time) if total_time > 0 else 0
-        filtered_speeds, filtered_timestamps = self.remove_outliers(speeds, timestamps)
+        filtered_speeds, filtered_timestamps = speeds, timestamps
         max_speed = max(filtered_speeds, default=0)
         elevation_change = max(elevations) - min(elevations)
 
@@ -492,6 +493,29 @@ class GPSMappingApp:
             f.write(", ".join(formatted_lines))
 
         print(f"Zones written to {output_file_path}")
+
+        output_file_name = output_file_path.replace(".txt", ".csv")
+        output_file_path = os.path.join(analysis_dir, output_file_name)
+
+        start_time = filtered_timestamps[0]
+        seconds = [(ts - start_time).total_seconds() for ts in filtered_timestamps[difference_amount:]]
+        zone_index = 0
+
+        with open(output_file_path, "w", newline="") as csvfile:
+            csvwriter = csv.writer(csvfile)
+            csvwriter.writerow(["second", "speed", "zone"])
+
+            for i, sec in enumerate(seconds):
+                current_zone = 0
+                for start_t, end_t, zone in stable_zones:
+                    if start_t <= sec <= end_t:
+                        current_zone = zone
+                        break
+
+                speed = round(filtered_speeds[i], 0)
+                csvwriter.writerow([int(sec), int(speed), current_zone])
+
+        print(f"CSV written to {output_file_path}")
 
         total_time_minutes = total_time * 60
         return coordinates, total_distance, average_speed, max_speed, elevation_change, total_time_minutes
