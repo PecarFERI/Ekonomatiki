@@ -71,16 +71,14 @@ sphere(d=joint_ball_diameter, $fn=32);
 
 module drzalo_za_telefon() {
 hull() {
-minkowski(){
 cube([phone_width + tolerance + 2*wall_thickness, cradle_depth, phone_height*0.7 + wall_thickness]);
-sphere(r=2.0, $fn=30);
+
 }
            
-}
+
 
 //drzali na levi in desni
 translate([-8, 0, phone_height*0.3]) {
-minkowski(){
 difference() {
 //trapezoid
         linear_extrude(height = phone_height * 0.25) {
@@ -98,13 +96,11 @@ difference() {
                     cylinder(h=10, d=2, $fn=16);
         }
     }
-            sphere(r=1, $fn=16);
-    }
+
 }
 
 
 translate([phone_width + tolerance + 2*wall_thickness, 0, phone_height*0.3]) {
-minkowski() {
 difference() {
             linear_extrude(height = phone_height * 0.25) {
                 polygon(points = [
@@ -122,8 +118,6 @@ difference() {
                         cylinder(h=10, d=2, $fn=16);
             }
         }
-        sphere(r=1, $fn=16);
-    }
 }
 
 //spodnja drzala 
@@ -142,32 +136,29 @@ for (x_shift = [15, phone_width + tolerance + 2*wall_thickness - 15]) {
 //zadaj da prikljucim
 translate([phone_width/2 + wall_thickness, cradle_depth - 10, phone_height*0.35])
 rotate([90, 0, 0])
-cylinder(h=15, d=joint_ball_diameter+6, $fn=32);
+cylinder(h=30, d=joint_ball_diameter+6, $fn=32);
 }
 
 
 
 
 
-
-
-// Complete assembly
 module celotno_drzalo_za_telefon() {
-    // Suction cup base
+    union(){
     color("gray"){
     pritrdi_na_avto();
     
-    // Curved arm
     translate([0, base_diameter*0.3, base_height*0.7])
         rotate([45, 0, 0])
-            translate([12, 0, 0])
+            translate([10, 0, 10])
                 rocaj();
     
-    // Phone cradle
- translate([60, base_diameter*0.3 + 50, base_height*0.7 + 5])
-    rotate([45, 0, 0])
+
+ translate([60, base_diameter*0.3 + 38, base_height*0.7 + 7])
+    rotate([30, 0, 0])
         drzalo_za_telefon();
    
+}
 }
 }
 
