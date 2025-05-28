@@ -8,6 +8,7 @@ import csv
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import gc
+import os
 
 
 class BiLSTMSpeedEconomyModel(nn.Module):
@@ -16,12 +17,12 @@ class BiLSTMSpeedEconomyModel(nn.Module):
         self.lstm = nn.LSTM(input_size=input_size,
                             hidden_size=hidden_size,
                             num_layers=num_layers,
-                            batch_first=True,  #vhodne oblike so batch size, sequence length, input size
+                            batch_first=True,  # vhodne oblike so batch size, sequence length, input size
                             dropout=0.2 if num_layers > 1 else 0,
-                            bidirectional=True)  #BiLSTM, gre skozi zaporedje naprej in nazaj
+                            bidirectional=True)  # BiLSTM, gre skozi zaporedje naprej in nazaj
 
         self.attention = nn.Sequential(
-            nn.Linear(hidden_size * 2, hidden_size * 2),  #podvojim zaradi bidirectional
+            nn.Linear(hidden_size * 2, hidden_size * 2),  # podvojim zaradi bidirectional
             nn.Tanh(),
             nn.Linear(hidden_size * 2, 1),
             nn.Softmax(dim=1)
@@ -29,7 +30,7 @@ class BiLSTMSpeedEconomyModel(nn.Module):
         self.fc = nn.Linear(hidden_size * 2, num_classes)
 
     def forward(self, x):
-        lstm_out, (hn, cn) = self.lstm(x)  #batch, seq_len, hidden_size*2
+        lstm_out, (hn, cn) = self.lstm(x)  # batch, seq_len, hidden_size*2
 
         attention_weights = self.attention(lstm_out)
         context_vector = torch.sum(attention_weights * lstm_out, dim=1)
@@ -45,11 +46,39 @@ sequence_length = 30
 
 
 def normalize_data(data):
-    mean = np.mean(data)
-    std = np.std(data)
+    non_zero_data = [x for x in data if x != 0.0]
+
+    if len(non_zero_data) == 0:
+        return data
+
+    mean = np.mean(non_zero_data)
+    std = np.std(non_zero_data)
     if std == 0:
         std = 1
-    return (data - mean) / std
+
+    normalized = []
+    for val in data:
+        if val == 0.0:
+            normalized.append(0.0)
+        else:
+            normalized.append((val - mean) / std)
+
+    return np.array(normalized)
+
+
+def prepare_sequence(speed_values, target_length=30):
+    if len(speed_values) == target_length:
+        return speed_values
+    elif len(speed_values) < target_length:
+        padded = speed_values + [0.0] * (target_length - len(speed_values))
+        return padded
+    else:
+        interpolated = np.interp(
+            np.linspace(0, 1, target_length),
+            np.linspace(0, 1, len(speed_values)),
+            speed_values
+        )
+        return interpolated.tolist()
 
 
 def add_example_manually():
@@ -63,14 +92,8 @@ def add_example_manually():
         if len(speed_values) < 5:
             raise ValueError("Please enter at least 5 speed values")
 
-        if len(speed_values) != sequence_length:
-            speed_values = np.interp(
-                np.linspace(0, 1, sequence_length),
-                np.linspace(0, 1, len(speed_values)),
-                speed_values
-            )
-
-        normalized_speed = normalize_data(speed_values)
+        prepared_sequence = prepare_sequence(speed_values, sequence_length)
+        normalized_speed = normalize_data(prepared_sequence)
 
         examples_X.append(normalized_speed)
         examples_y.append(int(economy_var.get()))
@@ -103,22 +126,16 @@ def load_from_csv():
 
             for row in reader:
                 try:
-                    if len(row) < sequence_length + 1:
+                    if len(row) < 2:
                         raise ValueError("Row too short")
 
                     # zadnji element je ocena
                     label = int(row[-1])
-
                     speed_values = [float(x) for x in row[:-1]]
 
-                    if len(speed_values) != sequence_length:
-                        speed_values = np.interp(
-                            np.linspace(0, 1, sequence_length),
-                            np.linspace(0, 1, len(speed_values)),
-                            speed_values
-                        )
-
-                    normalized_speed = normalize_data(speed_values)
+                    # Pripravi zaporedje z paddingom ali interpolacijo
+                    prepared_sequence = prepare_sequence(speed_values, sequence_length)
+                    normalized_speed = normalize_data(prepared_sequence)
 
                     examples_X.append(normalized_speed)
                     examples_y.append(label)
@@ -205,7 +222,7 @@ def train_model():
             model = BiLSTMSpeedEconomyModel(hidden_size=128, num_layers=3, num_classes=5)
             for name, param in model.named_parameters():
                 if 'weight' in name:
-                    nn.init.xavier_normal_(param)  #stabilizira malo
+                    nn.init.xavier_normal_(param)  # stabilizira malo
 
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.AdamW(model.parameters(), lr=0.0001, weight_decay=0.01)
@@ -246,7 +263,7 @@ def train_model():
                     text=f"Epoch: {epoch}/{epochs}, Loss: {loss.item():.4f}, LR: {optimizer.param_groups[0]['lr']:.6f}")
                 window.update()
 
-        #ocena natancnosyi
+        # ocena natančnosti
         with torch.no_grad():
             output = model(X_tensor)
             _, predicted = torch.max(output.data, 1)
@@ -264,7 +281,7 @@ def train_model():
         messagebox.showerror("Error", f"Error during training: {e}")
 
 
-def predict():
+def predict_single():
     global model
 
     if model is None:
@@ -281,14 +298,8 @@ def predict():
         if len(speed_values) < 5:
             raise ValueError("Please enter at least 5 speed values")
 
-        if len(speed_values) != sequence_length:
-            speed_values = np.interp(
-                np.linspace(0, 1, sequence_length),
-                np.linspace(0, 1, len(speed_values)),
-                speed_values
-            )
-
-        normalized_speed = normalize_data(speed_values)
+        prepared_sequence = prepare_sequence(speed_values, sequence_length)
+        normalized_speed = normalize_data(prepared_sequence)
 
         input_tensor = torch.tensor(np.array([normalized_speed]), dtype=torch.float32).unsqueeze(2)
 
@@ -319,6 +330,114 @@ def predict():
         messagebox.showerror("Error", f"Prediction error: {e}")
 
 
+def predict_csv_file():
+    global model
+
+    if model is None:
+        messagebox.showinfo("No Model", "Please train a model first.")
+        return
+
+    try:
+        csv_filename = filedialog.askopenfilename(
+            title="Select CSV file for prediction",
+            filetypes=(("CSV files", "*.csv"), ("All files", "*.*"))
+        )
+
+        if not csv_filename:
+            return
+
+        txt_filename = filedialog.asksaveasfilename(
+            title="Save predictions as",
+            defaultextension=".txt",
+            filetypes=(("Text files", "*.txt"), ("All files", "*.*"))
+        )
+
+        if not txt_filename:
+            return
+
+        predictions = []
+        processed_count = 0
+
+        with open(csv_filename, 'r') as f:
+            reader = csv.reader(f)
+
+            try:
+                header = next(reader)
+            except StopIteration:
+                raise ValueError("CSV file is empty")
+
+            model.eval()
+
+            for row_idx, row in enumerate(reader):
+                try:
+                    if len(row) == 0:
+                        continue
+
+                    speed_values = [float(x) for x in row if x.strip() != '']
+
+                    if len(speed_values) == 0:
+                        continue
+
+                    segments = []
+                    for i in range(0, len(speed_values), sequence_length):
+                        segment = speed_values[i:i + sequence_length]
+                        segments.append(segment)
+
+                    segment_predictions = []
+
+                    for segment in segments:
+                        prepared_sequence = prepare_sequence(segment, sequence_length)
+                        normalized_speed = normalize_data(prepared_sequence)
+
+                        input_tensor = torch.tensor(np.array([normalized_speed]), dtype=torch.float32).unsqueeze(2)
+
+                        with torch.no_grad():
+                            output = model(input_tensor)
+                            _, predicted = torch.max(output.data, 1)
+                            segment_predictions.append(predicted.item())
+
+                    predictions.append({
+                        'row': row_idx + 2,
+                        'segments': len(segments),
+                        'predictions': segment_predictions
+                    })
+
+                    processed_count += 1
+
+                except Exception as e:
+                    print(f"Error processing row {row_idx + 2}: {e}")
+                    continue
+
+        with open(txt_filename, 'w') as f:
+            f.write("Speed Economy Predictions\n")
+            f.write("=" * 50 + "\n")
+            f.write(f"Source CSV: {os.path.basename(csv_filename)}\n")
+            f.write(f"Processed rows: {processed_count}\n")
+            f.write(f"Sequence length: {sequence_length} seconds\n\n")
+
+            for pred_data in predictions:
+                f.write(f"Row {pred_data['row']}: ")
+                f.write(f"{pred_data['segments']} segments -> ")
+                f.write(f"Levels: {', '.join(map(str, pred_data['predictions']))}\n")
+
+            f.write("\n" + "=" * 50 + "\n")
+            f.write("Economy Levels:\n")
+            f.write("0 = Very Economical\n")
+            f.write("1 = Economical\n")
+            f.write("2 = Moderate\n")
+            f.write("3 = Uneconomical\n")
+            f.write("4 = Very Uneconomical\n")
+
+        messagebox.showinfo("Success",
+                            f"Predictions saved to {txt_filename}\n"
+                            f"Processed {processed_count} rows with {sum(len(p['predictions']) for p in predictions)} total segments")
+
+        status_label.config(text=f"CSV prediction completed: {processed_count} rows processed")
+
+    except Exception as e:
+        messagebox.showerror("Error", f"CSV prediction error: {e}")
+
+
 def update_plot():
     if not examples_X or not examples_y:
         return
@@ -337,7 +456,7 @@ def update_plot():
     plt.legend()
     plt.title("Example Speed Patterns")
     plt.xlabel("Time Steps")
-    plt.ylabel("Normalized Speed")
+    plt.ylabel("Normalized Speed (0.0 = padding)")
 
     if hasattr(update_plot, 'canvas'):
         update_plot.canvas.get_tk_widget().destroy()
@@ -393,8 +512,9 @@ def exit_application():
         window.destroy()
 
 
+# GUI Setup
 window = tk.Tk()
-window.title("BiLSTM Speed Economy Model")
+window.title("BiLSTM Speed Economy Model - Enhanced")
 window.geometry("800x700")
 
 notebook = ttk.Notebook(window)
@@ -408,6 +528,7 @@ notebook.add(training_tab, text="Training")
 notebook.add(prediction_tab, text="Prediction")
 notebook.add(visualization_tab, text="Visualization")
 
+# Training Tab
 examples_frame = ttk.LabelFrame(training_tab, text="Add Training Examples")
 examples_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
@@ -439,22 +560,37 @@ ttk.Button(model_frame, text="Save Model", command=save_model).pack(side="left",
 ttk.Button(model_frame, text="Load Model", command=load_model).pack(side="left", padx=10, pady=10)
 ttk.Button(model_frame, text="Clear Memory", command=clear_memory).pack(side="left", padx=10, pady=10)
 
-predict_frame = ttk.LabelFrame(prediction_tab, text="Predict Economy Level")
+# Prediction Tab
+predict_frame = ttk.LabelFrame(prediction_tab, text="Single Prediction")
 predict_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
 tk.Label(predict_frame, text="Enter speed values (space or comma separated):").pack(anchor="w", padx=5, pady=5)
 predict_input = tk.Text(predict_frame, height=5, width=60)
 predict_input.pack(fill="both", expand=True, padx=5, pady=5)
 
-ttk.Button(predict_frame, text="Predict", command=predict).pack(padx=5, pady=10)
+single_predict_frame = ttk.Frame(predict_frame)
+single_predict_frame.pack(fill="x", padx=5, pady=5)
+
+ttk.Button(single_predict_frame, text="Predict Single", command=predict_single).pack(side="left", padx=5)
 
 result_label = tk.Label(predict_frame, text="", font=("Arial", 12), justify="left")
 result_label.pack(fill="both", expand=True, padx=5, pady=5)
 
+# CSV Prediction Frame
+csv_predict_frame = ttk.LabelFrame(prediction_tab, text="CSV File Prediction")
+csv_predict_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+tk.Label(csv_predict_frame, text="Process entire CSV file and save predictions to TXT file:").pack(anchor="w", padx=5,
+                                                                                                   pady=5)
+ttk.Button(csv_predict_frame, text="Predict CSV File", command=predict_csv_file).pack(padx=5, pady=10)
+
+# Visualization Tab
 plot_frame = ttk.LabelFrame(visualization_tab, text="Speed Patterns")
 plot_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-status_label = tk.Label(window, text="Ready", bd=1, relief=tk.SUNKEN, anchor=tk.W)
+# Status and Exit
+status_label = tk.Label(window, text="Ready - Enhanced with CSV prediction and padding support", bd=1, relief=tk.SUNKEN,
+                        anchor=tk.W)
 status_label.grid(row=10, column=0, columnspan=2, sticky="we")
 
 ttk.Button(window, text="Exit", command=exit_application).grid(row=11, column=0, columnspan=2, pady=5)
