@@ -52,8 +52,8 @@ class GPSMappingApp:
             "#FBC02D"
         ]
 
-        sun_icon_path = r"C:\FERI\2. letnik\4. semester\Avtonomna voznja\Private\Assests\light_mode_icon.png"
-        moon_icon_path = r"C:\FERI\2. letnik\4. semester\Avtonomna voznja\Private\Assests\dark_mode_icon.png"
+        sun_icon_path = os.path.join("Assets", "light_mode_icon.png")
+        moon_icon_path = os.path.join("Assets", "dark_mode_icon.png")
 
         self.sun_icon = ctk.CTkImage(
             light_image=Image.open(sun_icon_path),
