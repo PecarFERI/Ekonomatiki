@@ -204,9 +204,9 @@ class GPSMappingApp:
     def toggle_mode(self):
         if self.current_theme == "dark":
             ctk.set_appearance_mode("Light")
-            self.main_color = "#DADDE1"
-            self.text_color = "#2C2C2C"
-            self.backup_color = "#E3E6E9"
+            self.main_color = "#FFFFFF"
+            self.text_color = "black"
+            self.backup_color = "#FBFBFB"
             self.toggle_button.configure(image=self.sun_icon)
             self.current_theme = "light"
         else:
