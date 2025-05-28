@@ -11,27 +11,30 @@ import joblib
 from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.stattools import adfuller
 from sklearn.metrics import mean_squared_error
-from statsmodels.tsa.arima.model import ARIMA
 import warnings
+
 warnings.filterwarnings("ignore")
-#fizikalarima
+
 sequence_length = 30
 
 examples_X = []
 examples_y = []
 model = None
 
-p = 1 #koliko preteklih vrednosti upostevamo
-d = 1 #kolikokrat vzamemo razliko
-q = 1 #koliko preteklih napak vkljucimo
+p = 1
+d = 1
+q = 1
 
 
-def check_stacionarnost(timeseries): #preveri stacionasrnost z dickey fuller - ce ima konstantno povprecje in varianco
-    result = adfuller(timeseries)
-    return result[1] <= 0.05  #p <= 0.05 pomeni, da je serija stacionarna
+def check_stacionarnost(timeseries):
+    try:
+        result = adfuller(timeseries, autolag='AIC')
+        return result[1] <= 0.05  # p <= 0.05 pomeni, da je serija stacionarna
+    except:
+        return False
 
 
-def diferencialna_serija(serije, interval=1): #diferencialno serijo zracunam za stacionarnost
+def diferencialna_serija(serije, interval=1):
     return np.array([serije[i] - serije[i - interval] for i in range(interval, len(serije))])
 
 
@@ -41,6 +44,66 @@ def normalize_data(data):
     if std == 0:
         std = 1
     return (data - mean) / std
+
+
+def find_best_arima_params(series, max_p=3, max_d=2, max_q=3):
+    best_p, best_d, best_q = 1, 1, 1
+    best_aic = float('inf')
+
+    series_copy = np.array(series)
+    d_optimal = 0
+
+    for d_test in range(max_d + 1):
+        test_series = series_copy.copy()
+
+        for _ in range(d_test):
+            if len(test_series) > 1:
+                test_series = diferencialna_serija(test_series)
+            else:
+                break
+
+        if len(test_series) > 5 and check_stacionarnost(test_series):
+            d_optimal = d_test
+            break
+
+    if d_optimal > max_d:
+        d_optimal = max_d
+
+    total_combinations = (max_p + 1) * (max_q + 1)
+    tested = 0
+
+    for p_test in range(max_p + 1):
+        for q_test in range(max_q + 1):
+            if p_test == 0 and q_test == 0:
+                continue
+
+            try:
+                test_series = series_copy.copy()
+
+                for _ in range(d_optimal):
+                    if len(test_series) > 1:
+                        test_series = diferencialna_serija(test_series)
+                    else:
+                        break
+
+                if len(test_series) < 5:
+                    continue
+
+                model_test = ARIMA(series, order=(p_test, d_optimal, q_test))
+                model_fit = model_test.fit()
+
+                if model_fit.aic < best_aic:
+                    best_aic = model_fit.aic
+                    best_p = p_test
+                    best_d = d_optimal
+                    best_q = q_test
+
+            except Exception as e:
+                continue
+
+            tested += 1
+
+    return best_p, best_d, best_q, best_aic
 
 
 def add_example_manually():
@@ -149,7 +212,7 @@ def save_model():
                 "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "sequence_length": sequence_length,
                 "num_examples": len(examples_X),
-                "description": "ARIMA model za ekonomičnost vožnje"
+                "description": "ARIMA model za ekonomičnost vožnje z optimiziranimi parametri"
             }
 
             with open(os.path.join(model_dir, "model_info.txt"), 'w') as f:
@@ -181,55 +244,6 @@ def load_model():
         messagebox.showerror("Napaka", f"Nalaganje modela ni uspelo: {str(e)}")
         print(f"Podrobna napaka: {repr(e)}")
 
-'''
-def find_best_arima_params(series):
-    """Poišči najboljše parametre za ARIMA model"""
-    best_p, best_d, best_q = 1, 0, 0
-    best_aic = float('inf')
-
-    # Preverimo stacionarnost in določimo parameter d
-    if not check_stationarity(series):
-        # Serija ni stacionarna, potrebujemo diferenciranje
-        best_d = 1
-
-    # Omejeno preizkušanje parametrov za hitrost
-    max_p = 2
-    max_q = 2
-
-    # Napredna vrstica
-    progress = ttk.Progressbar(window, orient="horizontal", length=300, mode="determinate")
-    progress.grid(row=9, column=0, columnspan=2, pady=5)
-    progress["maximum"] = max_p * max_q
-    progress["value"] = 0
-    window.update()
-
-    count = 0
-    # Preizkušanje različnih kombinacij p, q (groba implementacija Grid Search)
-    for p in range(max_p + 1):
-        for q in range(max_q + 1):
-            if p == 0 and q == 0:
-                continue  # Izogibanje neveljavni kombinaciji
-
-            try:
-                model = ARIMA(series, order=(p, best_d, q))
-                model_fit = model.fit()
-
-                # Primerjava z AIC (Akaike Information Criterion)
-                if model_fit.aic < best_aic:
-                    best_aic = model_fit.aic
-                    best_p = p
-                    best_q = q
-            except:
-                pass  # Ignoriramo neuspešne modele
-
-            count += 1
-            progress["value"] = count
-            window.update()
-
-    progress.destroy()
-    return best_p, best_d, best_q
-'''
-
 
 def train_model():
     global model
@@ -239,25 +253,89 @@ def train_model():
         return
 
     try:
-        class_models = {}
+        # Ustvari progress bar
+        progress_window = tk.Toplevel(window)
+        progress_window.title("Optimizacija ARIMA parametrov")
+        progress_window.geometry("400x150")
+        progress_window.transient(window)
+        progress_window.grab_set()
 
-        for class_label in set(examples_y):
-            class_sequences = [x for i, x in enumerate(examples_X) if examples_y[i] == class_label]
+        progress_label = tk.Label(progress_window, text="Iskanje optimalnih parametrov...")
+        progress_label.pack(pady=10)
+
+        progress_bar = ttk.Progressbar(progress_window, mode='determinate')
+        progress_bar.pack(pady=10, padx=20, fill='x')
+
+        status_text = tk.Label(progress_window, text="")
+        status_text.pack(pady=5)
+
+        class_models = {}
+        unique_classes = list(set(examples_y))
+        total_classes = len(unique_classes)
+
+        progress_bar['maximum'] = total_classes
+
+        for i, class_label in enumerate(unique_classes):
+            progress_bar['value'] = i
+            status_text.config(text=f"Optimiziram parametre za razred {class_label}...")
+            progress_window.update()
+
+            # Pridobi sekvence za trenutni razred
+            class_sequences = [x for j, x in enumerate(examples_X) if examples_y[j] == class_label]
+
+            if len(class_sequences) == 0:
+                continue
+
+            # Izračunaj povprečno sekvenco za razred
             avg_sequence = np.mean(class_sequences, axis=0)
 
-            model_fit = ARIMA(avg_sequence, order=(p, d, q)).fit()
+            # Poišči najboljše parametre za ta razred
+            try:
+                best_p, best_d, best_q, best_aic = find_best_arima_params(avg_sequence)
 
-            class_models[class_label] = model_fit
+                # Ustvari optimalni model
+                model_fit = ARIMA(avg_sequence, order=(best_p, best_d, best_q)).fit()
+
+                class_models[class_label] = {
+                    'model': model_fit,
+                    'order': (best_p, best_d, best_q),
+                    'aic': best_aic
+                }
+
+            except Exception as e:
+                print(f"Napaka pri optimizaciji za razred {class_label}: {e}")
+                # Uporabi privzete parametre
+                model_fit = ARIMA(avg_sequence, order=(1, 1, 1)).fit()
+                class_models[class_label] = {
+                    'model': model_fit,
+                    'order': (1, 1, 1),
+                    'aic': model_fit.aic
+                }
+
+        progress_bar['value'] = total_classes
+        status_text.config(text="Optimizacija končana!")
+        progress_window.update()
 
         model = {
-            'order': (p, d, q),
             'class_models': class_models
         }
 
-        status_label.config(text=f"Modeli ARIMA so pripravljeni. Parametri: p={p}, d={d}, q={q}")
+        # Prikaži rezultate optimizacije
+        result_text = "Optimizirani parametri za vsak razred:\n"
+        for class_label, model_info in class_models.items():
+            p_opt, d_opt, q_opt = model_info['order']
+            aic_opt = model_info['aic']
+            result_text += f"Razred {class_label}: p={p_opt}, d={d_opt}, q={q_opt} (AIC: {aic_opt:.2f})\n"
+
+        progress_window.destroy()
+
+        messagebox.showinfo("Optimizacija končana", result_text)
+        status_label.config(text="Modeli ARIMA so optimizirani in pripravljeni")
         clear_memory()
 
     except Exception as e:
+        if 'progress_window' in locals():
+            progress_window.destroy()
         messagebox.showerror("Napaka", f"Napaka med učenjem: {e}")
         import traceback
         traceback.print_exc()
@@ -289,15 +367,19 @@ def predict():
 
         normalized_speed = normalize_data(speed_values)
 
-        class_models = model['class_models'] #pridobim modele
+        class_models = model['class_models']
 
         class_errors = {}
-        for cls, arima_model in class_models.items():
+        for cls, model_info in class_models.items():
             try:
+                arima_model = model_info['model']
+
+                #naslednja vrednost
                 forecast = arima_model.forecast(steps=1)
 
-                history_forecast = arima_model.predict(start=0, end=len(normalized_speed) - 1) #napovem vrednost
-                error = np.mean(np.abs(normalized_speed - history_forecast)) #napaka med normalizirano hitrostjo in nnapovedojo
+                #obtojece s primerjavo
+                history_forecast = arima_model.predict(start=0, end=len(normalized_speed) - 1)
+                error = np.mean(np.abs(normalized_speed - history_forecast))
 
                 class_errors[cls] = error
             except Exception as e:
@@ -309,13 +391,13 @@ def predict():
         else:
             predicted_level = 1
 
-#izracunam verjetnost za vse razrede
-        if sum(class_errors.values()) == float('inf'):
+        if sum(class_errors.values()) == float('inf') or all(err == float('inf') for err in class_errors.values()):
             probabilities = {cls: 1.0 / len(class_errors) for cls in class_errors.keys()}
         else:
-            max_error = max(err for err in class_errors.values() if err < float('inf')) if class_errors else 1.0
-            inv_errors = {cls: max(0.001, (max_error - err) / max_error) for cls, err in class_errors.items() if
-                          err < float('inf')}
+            max_error = max(err for err in class_errors.values() if err < float('inf')) if any(
+                err < float('inf') for err in class_errors.values()) else 1.0
+            inv_errors = {cls: max(0.001, (max_error + 0.001 - err) / (max_error + 0.001)) for cls, err in
+                          class_errors.items() if err < float('inf')}
             total_inv_error = sum(inv_errors.values())
             probabilities = {cls: err / total_inv_error for cls, err in
                              inv_errors.items()} if total_inv_error > 0 else {0: 1.0}
@@ -340,12 +422,18 @@ def predict():
             err = class_errors.get(i, float('inf'))
             result_text += f"\nLevel {i}: {err:.5f}" if err < float('inf') else f"\nLevel {i}: Ni na voljo"
 
+        result_text += "\n\nOptimizirani parametri:"
+        for cls, model_info in class_models.items():
+            p_opt, d_opt, q_opt = model_info['order']
+            result_text += f"\nLevel {cls}: p={p_opt}, d={d_opt}, q={q_opt}"
+
         result_label.config(text=result_text)
 
     except Exception as e:
         messagebox.showerror("Napaka", f"Napaka pri napovedi: {e}")
         import traceback
         traceback.print_exc()
+
 
 def update_plot():
     if not examples_X or not examples_y:
@@ -465,8 +553,9 @@ def exit_application():
         window.destroy()
 
 
+# GUI setup
 window = tk.Tk()
-window.title("ARIMA model za analizo ekonomičnosti vožnje")
+window.title("ARIMA model za analizo ekonomičnosti vožnje - Optimiziran")
 window.geometry("800x700")
 
 notebook = ttk.Notebook(window)
@@ -507,10 +596,10 @@ ttk.Button(button_frame, text="Naloži iz CSV", command=load_from_csv).pack(side
 ttk.Button(button_frame, text="Izvozi podatke", command=export_data).pack(side="left", padx=5)
 ttk.Button(button_frame, text="Izbriši podatke", command=clear_data).pack(side="left", padx=5)
 
-model_frame = ttk.LabelFrame(training_tab, text="Učenje modela")
+model_frame = ttk.LabelFrame(training_tab, text="Učenje modela z optimizacijo")
 model_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-ttk.Button(model_frame, text="Nauči model", command=train_model).pack(side="left", padx=10, pady=10)
+ttk.Button(model_frame, text="Nauči model (z optimizacijo)", command=train_model).pack(side="left", padx=10, pady=10)
 ttk.Button(model_frame, text="Shrani model", command=save_model).pack(side="left", padx=10, pady=10)
 ttk.Button(model_frame, text="Naloži model", command=load_model).pack(side="left", padx=10, pady=10)
 ttk.Button(model_frame, text="Očisti pomnilnik", command=clear_memory).pack(side="left", padx=10, pady=10)
@@ -533,7 +622,6 @@ plot_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
 info_frame = ttk.LabelFrame(info_tab, text="O ARIMA modelu")
 info_frame.pack(fill="both", expand=True, padx=10, pady=10)
-
 
 status_label = tk.Label(window, text="Pripravljen", bd=1, relief=tk.SUNKEN, anchor=tk.W)
 status_label.grid(row=10, column=0, columnspan=2, sticky="we")
