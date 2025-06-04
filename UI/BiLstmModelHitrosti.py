@@ -46,24 +46,25 @@ sequence_length = 30
 
 
 def normalize_data(data):
-    non_zero_data = [x for x in data if x != 0.0]
+    data = np.array(data)
+    non_zero_mask = data != 0.0
 
-    if len(non_zero_data) == 0:
+    if not np.any(non_zero_mask):
         return data
 
-    mean = np.mean(non_zero_data)
-    std = np.std(non_zero_data)
-    if std == 0:
-        std = 1
+    non_zero_data = data[non_zero_mask]
 
-    normalized = []
-    for val in data:
-        if val == 0.0:
-            normalized.append(0.0)
-        else:
-            normalized.append((val - mean) / std)
+    q25, q75 = np.percentile(non_zero_data, [25, 75])
+    median = np.median(non_zero_data)
+    iqr = q75 - q25
 
-    return np.array(normalized)
+    if iqr == 0:
+        iqr = 1
+
+    normalized = np.zeros_like(data)
+    normalized[non_zero_mask] = (data[non_zero_mask] - median) / iqr
+
+    return normalized
 
 
 def prepare_sequence(speed_values, target_length=30):
@@ -89,11 +90,10 @@ def add_example_manually():
 
         speed_values = [float(x) for x in speed_str.replace(',', ' ').split()]
 
-        if len(speed_values) < 5:
-            raise ValueError("Please enter at least 5 speed values")
+        if len(speed_values) != 20:
+            raise ValueError(f"Please enter exactly 20 speed values (got {len(speed_values)})")
 
-        prepared_sequence = prepare_sequence(speed_values, sequence_length)
-        normalized_speed = normalize_data(prepared_sequence)
+        normalized_speed = normalize_data_improved(speed_values)
 
         examples_X.append(normalized_speed)
         examples_y.append(int(economy_var.get()))
@@ -101,7 +101,6 @@ def add_example_manually():
         status_label.config(text=f"Added example #{len(examples_X)} (Economy Level: {economy_var.get()})")
 
         speed_input.delete("1.0", tk.END)
-
         update_plot()
 
     except Exception as e:
@@ -122,27 +121,28 @@ def load_from_csv():
 
         with open(filename, 'r') as f:
             reader = csv.reader(f)
-            header = next(reader)  # skippam header
+            header = next(reader)
 
-            for row in reader:
+            for row_num, row in enumerate(reader, start=2):
                 try:
-                    if len(row) < 2:
-                        raise ValueError("Row too short")
+                    if len(row) < 21:
+                        print(f"Row {row_num}: Expected 21 columns, got {len(row)}")
+                        continue
 
-                    # zadnji element je ocena
-                    label = int(row[-1])
-                    speed_values = [float(x) for x in row[:-1]]
+                    efficiency_rating = int(float(row[-1]))
+                    if efficiency_rating < 0 or efficiency_rating > 5:
+                        print(f"Row {row_num}: Invalid efficiency rating {efficiency_rating}, should be 0-5")
+                        continue
 
-                    # Pripravi zaporedje z paddingom ali interpolacijo
-                    prepared_sequence = prepare_sequence(speed_values, sequence_length)
-                    normalized_speed = normalize_data(prepared_sequence)
+                    speed_values = [float(x) for x in row[:20]]
+                    normalized_speed = normalize_data_improved(speed_values)
 
                     examples_X.append(normalized_speed)
-                    examples_y.append(label)
+                    examples_y.append(efficiency_rating)
                     loaded_count += 1
 
                 except Exception as e:
-                    print(f"Error processing row: {e}")
+                    print(f"Error processing row {row_num}: {e}")
                     continue
 
         status_label.config(text=f"Loaded {loaded_count} examples from CSV")
@@ -171,6 +171,7 @@ def save_model():
 
     except Exception as e:
         messagebox.showerror("Error", f"Failed to save model: {e}")
+
 
 
 def load_model():
