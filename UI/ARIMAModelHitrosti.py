@@ -53,7 +53,7 @@ def find_best_arima_params(series, max_p=3, max_d=2, max_q=3):
     series_copy = np.array(series)
     d_optimal = 0
 
-    for d_test in range(max_d + 1):
+    for d_test in range(max_d + 1): #za d, najde stacionarnost
         test_series = series_copy.copy()
 
         for _ in range(d_test):
@@ -72,7 +72,7 @@ def find_best_arima_params(series, max_p=3, max_d=2, max_q=3):
     total_combinations = (max_p + 1) * (max_q + 1)
     tested = 0
 
-    for p_test in range(max_p + 1):
+    for p_test in range(max_p + 1): #poisce najboljso kombinacijo p, d q
         for q_test in range(max_q + 1):
             if p_test == 0 and q_test == 0:
                 continue
@@ -104,6 +104,50 @@ def find_best_arima_params(series, max_p=3, max_d=2, max_q=3):
             tested += 1
 
     return best_p, best_d, best_q, best_aic
+
+
+def calculate_model_accuracy():
+    global model, examples_X, examples_y
+
+    if model is None or not examples_X or not examples_y:
+        return 0, 0, 0, {}
+
+    class_models = model['class_models']
+    correct_predictions = 0
+    total_predictions = len(examples_X)
+    detailed_results = {}
+
+    for i, (speed_sequence, true_label) in enumerate(zip(examples_X, examples_y)):
+        class_errors = {}
+
+        for cls, model_info in class_models.items():
+            try:
+                arima_model = model_info['model']
+                history_forecast = arima_model.predict(start=0, end=len(speed_sequence) - 1)
+                error = np.mean(np.abs(speed_sequence - history_forecast))
+                class_errors[cls] = error
+            except Exception as e:
+                class_errors[cls] = float('inf')
+
+        if class_errors:
+            predicted_label = min(class_errors, key=class_errors.get)
+        else:
+            predicted_label = 0
+
+        is_correct = (predicted_label == true_label)
+        if is_correct:
+            correct_predictions += 1
+
+        detailed_results[i] = {
+            'true_label': true_label,
+            'predicted_label': predicted_label,
+            'correct': is_correct,
+            'errors': class_errors.copy()
+        }
+
+    accuracy_percentage = (correct_predictions / total_predictions) * 100 if total_predictions > 0 else 0
+
+    return accuracy_percentage, correct_predictions, total_predictions, detailed_results
 
 
 def add_example_manually():
@@ -280,20 +324,16 @@ def train_model():
             status_text.config(text=f"Optimiziram parametre za razred {class_label}...")
             progress_window.update()
 
-            # Pridobi sekvence za trenutni razred
             class_sequences = [x for j, x in enumerate(examples_X) if examples_y[j] == class_label]
 
             if len(class_sequences) == 0:
                 continue
 
-            # Izračunaj povprečno sekvenco za razred
             avg_sequence = np.mean(class_sequences, axis=0)
 
-            # Poišči najboljše parametre za ta razred
             try:
                 best_p, best_d, best_q, best_aic = find_best_arima_params(avg_sequence)
 
-                # Ustvari optimalni model
                 model_fit = ARIMA(avg_sequence, order=(best_p, best_d, best_q)).fit()
 
                 class_models[class_label] = {
@@ -304,7 +344,6 @@ def train_model():
 
             except Exception as e:
                 print(f"Napaka pri optimizaciji za razred {class_label}: {e}")
-                # Uporabi privzete parametre
                 model_fit = ARIMA(avg_sequence, order=(1, 1, 1)).fit()
                 class_models[class_label] = {
                     'model': model_fit,
@@ -320,7 +359,6 @@ def train_model():
             'class_models': class_models
         }
 
-        # Prikaži rezultate optimizacije
         result_text = "Optimizirani parametri za vsak razred:\n"
         for class_label, model_info in class_models.items():
             p_opt, d_opt, q_opt = model_info['order']
@@ -330,7 +368,11 @@ def train_model():
         progress_window.destroy()
 
         messagebox.showinfo("Optimizacija končana", result_text)
-        status_label.config(text="Modeli ARIMA so optimizirani in pripravljeni")
+
+        accuracy, correct, total, _ = calculate_model_accuracy()
+        status_text = f"Modeli ARIMA so optimizirani in pripravljeni | Natančnost: {accuracy:.2f}% ({correct}/{total})"
+        status_label.config(text=status_text)
+
         clear_memory()
 
     except Exception as e:
@@ -374,10 +416,9 @@ def predict():
             try:
                 arima_model = model_info['model']
 
-                #naslednja vrednost
                 forecast = arima_model.forecast(steps=1)
 
-                #obtojece s primerjavo
+                # obtojece s primerjavo
                 history_forecast = arima_model.predict(start=0, end=len(normalized_speed) - 1)
                 error = np.mean(np.abs(normalized_speed - history_forecast))
 
@@ -407,7 +448,7 @@ def predict():
             "Ekonomično (1)",
             "Zmerno (2)",
             "Neekonomično (3)",
-            "Zelo neekonomično (4)"
+            "Vrlo neekonomično (4)"
         ]
 
         result_text = f"Napovedana ekonomičnost: {predicted_level}\n{descriptions[predicted_level]}"
@@ -622,6 +663,38 @@ plot_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
 info_frame = ttk.LabelFrame(info_tab, text="O ARIMA modelu")
 info_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+# Dodaj informacije o ARIMA modelu
+info_text = """
+ARIMA Model za Ekonomičnost Vožnje
+
+ARIMA (AutoRegressive Integrated Moving Average) je statistični model za analizo časovnih vrst.
+
+Parametri ARIMA modela:
+• p (AutoRegressive): koliko prejšnjih vrednosti vpliva na trenutno
+• d (Integrated): stopnja diferenciranja za doseganje stacionarnosti  
+• q (Moving Average): koliko prejšnjih napak vpliva na trenutno
+
+Kako deluje v tej aplikaciji:
+1. Za vsak razred ekonomičnosti (0-4) se ustvari ločen ARIMA model
+2. Model se optimizira z iskanjem najboljših parametrov (p,d,q)
+3. Pri napovedi se izračuna napaka rekonstrukcije za vsak razred
+4. Razred z najmanjšo napako je napovedani rezultat
+
+Natančnost (Accuracy):
+• Meri delež pravilnih napovedi: (pravilne napovedi / vse napovedi) × 100%
+• Testira se na podatkih, ki so bili uporabljeni za učenje
+• Višja vrednost pomeni boljši model
+• Priporočena vrednost: >70% za dobro delovanje
+
+Model je primeren za:
+• Analizo vzorcev hitrosti
+• Napoved ekonomičnosti vožnje
+• Odkrivanje anomalij v voznih navadah
+"""
+
+info_label = tk.Label(info_frame, text=info_text, justify="left", font=("Arial", 10), wraplength=700)
+info_label.pack(padx=10, pady=10, fill="both", expand=True)
 
 status_label = tk.Label(window, text="Pripravljen", bd=1, relief=tk.SUNKEN, anchor=tk.W)
 status_label.grid(row=10, column=0, columnspan=2, sticky="we")
