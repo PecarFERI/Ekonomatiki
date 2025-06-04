@@ -9,6 +9,8 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import gc
 import os
 from sklearn.metrics import classification_report
+import subprocess
+import sys
 
 class BiLSTMSpeedEconomyModel(nn.Module):
     def __init__(self, input_size=1, hidden_size=64, num_layers=2, num_classes=6):
@@ -433,6 +435,35 @@ def predict_csv():
         messagebox.showerror("Napaka", f"Napaka pri obdelavi CSV: {e}")
 
 
+def draw_map():
+    try:
+        if os.path.exists("izrisZemljevidaPoStopnjah.py"):
+            status_label.config(text="Zaganjam izris zemljevida...")
+
+            process = subprocess.Popen([sys.executable, "izrisZemljevidaPoStopnjah.py"],
+                                       stdout=subprocess.PIPE,
+                                       stderr=subprocess.PIPE)
+
+            stdout, stderr = process.communicate()
+
+            if process.returncode == 0:
+                status_label.config(text="Zemljevid uspešno izrisan")
+                messagebox.showinfo("Uspeh", "Zemljevid je bil uspešno izrisan!")
+            else:
+                error_msg = stderr.decode('utf-8') if stderr else "Neznana napaka"
+                status_label.config(text="Napaka pri izrisu zemljevida")
+                messagebox.showerror("Napaka", f"Napaka pri izrisu zemljevida:\n{error_msg}")
+
+        else:
+            messagebox.showerror("Napaka", "Datoteka 'izrisZemljevidaPoStopnjah.py' ni bila najdena v trenutni mapi!")
+
+    except Exception as e:
+        status_label.config(text="Napaka pri zaganjanju zemljevida")
+        messagebox.showerror("Napaka", f"Napaka pri zaganjanju skripte za zemljevid:\n{str(e)}")
+
+
+
+
 def update_stats_label(processed_count, error_count, model_differences):
     if processed_count == 0:
         stats_text = "Ni bilo obdelanih vrstic"
@@ -564,7 +595,6 @@ def test_models():
     result_display.insert('1.0', result_text)
     result_display.config(state='disabled')
 
-
 def exit_application():
     if messagebox.askyesno("Izhod", "Ali si prepričan, da se želiš odjaviti?"):
         gc.collect()
@@ -638,6 +668,7 @@ csv_info = tk.Label(csv_frame,
 csv_info.pack(anchor="w", padx=10, pady=10)
 
 ttk.Button(csv_frame, text="Obdelaj CSV datoteko", command=predict_csv).pack(pady=20)
+ttk.Button(csv_frame, text="Izris zemljevida", command=draw_map).pack(pady=20)
 
 stats_frame = ttk.LabelFrame(csv_frame, text="Statistika zadnje obdelave")
 stats_frame.pack(fill="x", padx=10, pady=10)
