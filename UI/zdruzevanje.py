@@ -427,6 +427,9 @@ def predict_csv():
         # Prikaži statistike v GUI
         display_csv_analysis(processed_count, error_count, model_differences)
 
+        # Posodobi kratko statistiko
+        update_stats_label(processed_count, error_count, model_differences)
+
         message = f"Obdelanih {processed_count} vrstic"
         if error_count > 0:
             message += f", {error_count} napak"
@@ -437,6 +440,25 @@ def predict_csv():
 
     except Exception as e:
         messagebox.showerror("Napaka", f"Napaka pri obdelavi CSV: {e}")
+
+
+def update_stats_label(processed_count, error_count, model_differences):
+    """Posodobi kratko statistiko v CSV tabu"""
+    if processed_count == 0:
+        stats_text = "Ni bilo obdelanih vrstic"
+    else:
+        same_predictions = processed_count - len(model_differences)
+        different_predictions = len(model_differences)
+
+        stats_text = f"📊 Obdelanih vrstic: {processed_count} | Napake: {error_count}\n"
+
+        if predictor.speed_model is not None and predictor.acceleration_model is not None:
+            stats_text += f"🤝 Enake napovedi: {same_predictions} ({same_predictions / processed_count * 100:.1f}%)\n"
+            stats_text += f"⚖️ Različne napovedi: {different_predictions} ({different_predictions / processed_count * 100:.1f}%)"
+        else:
+            stats_text += "ℹ️ Uporabljen samo en model"
+
+    stats_label.config(text=stats_text)
 
 
 def display_csv_analysis(processed_count, error_count, model_differences):
@@ -629,6 +651,15 @@ csv_info = tk.Label(csv_frame,
 csv_info.pack(anchor="w", padx=10, pady=10)
 
 ttk.Button(csv_frame, text="Obdelaj CSV datoteko", command=predict_csv).pack(pady=20)
+
+# Dodaj statistiko razlik
+stats_frame = ttk.LabelFrame(csv_frame, text="Statistika zadnje obdelave")
+stats_frame.pack(fill="x", padx=10, pady=10)
+
+global stats_label
+stats_label = tk.Label(stats_frame, text="Še ni bilo obdelave CSV datoteke",
+                       justify="left", anchor="w", bg="white", relief="sunken", padx=10, pady=10)
+stats_label.pack(fill="x", padx=5, pady=5)
 
 # Status bar
 status_label = tk.Label(window, text="Pripravljeno - naloži modele za začetek",
