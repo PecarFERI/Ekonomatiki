@@ -10,7 +10,6 @@ import gc
 import os
 from sklearn.metrics import classification_report
 
-
 class BiLSTMSpeedEconomyModel(nn.Module):
     def __init__(self, input_size=1, hidden_size=64, num_layers=2, num_classes=6):
         super(BiLSTMSpeedEconomyModel, self).__init__()
@@ -222,7 +221,7 @@ class UnifiedEconomyPredictor:
             try:
                 combined_probabilities = []
                 for i in range(6):
-                    # Spremenjena utež: 0.6 za hitrost, 0.4 za pospešek
+                    #dodana utez 0,6 za model hittosti
                     weighted_prob = (results['speed']['probabilities'][i] * 0.6 +
                                      results['acceleration']['probabilities'][i] * 0.4)
                     combined_probabilities.append(weighted_prob)
@@ -307,18 +306,13 @@ def predict_manual():
 
 
 def generate_output_filename(input_filename):
-    """Generira ime output datoteke na podlagi input datoteke"""
-    # Dobi ime datoteke brez poti
     base_name = os.path.basename(input_filename)
-    # Odstrani končnico .csv
     name_without_ext = os.path.splitext(base_name)[0]
-    # Zamenjaj _predict z _output
     if name_without_ext.endswith('_predict'):
         output_name = name_without_ext.replace('_predict', '_output') + '.csv'
     else:
         output_name = name_without_ext + '_output.csv'
 
-    # Dobi mapo input datoteke
     input_dir = os.path.dirname(input_filename)
     return os.path.join(input_dir, output_name)
 
@@ -336,7 +330,6 @@ def predict_csv():
     if not csv_filename:
         return
 
-    # Generiraj ime output datoteke
     suggested_output = generate_output_filename(csv_filename)
 
     output_filename = filedialog.asksaveasfilename(
@@ -353,7 +346,7 @@ def predict_csv():
     try:
         processed_count = 0
         error_count = 0
-        model_differences = []  # Za sledenje razlik med modeli
+        model_differences = []
 
         with open(csv_filename, 'r') as f:
             reader = csv.reader(f)
@@ -366,7 +359,7 @@ def predict_csv():
             with open(output_filename, 'w', newline='') as out_f:
                 writer = csv.writer(out_f)
 
-                out_header = [f'speed_{i + 1}' for i in range(20)]  # speed_1, speed_2, ..., speed_20
+                out_header = [f'speed_{i + 1}' for i in range(20)]
                 out_header.append('predicted_label')  # dodaj label na konec
                 writer.writerow(out_header)
 
@@ -397,7 +390,7 @@ def predict_csv():
                         predicted_label = ""
                         if 'combined' in results:
                             predicted_label = results['combined']['prediction']
-                            # Spremljaj razlike med modeli
+                            #za razlike med modeli
                             if 'speed' in results and 'acceleration' in results:
                                 speed_pred = results['speed']['prediction']
                                 accel_pred = results['acceleration']['prediction']
@@ -424,10 +417,8 @@ def predict_csv():
                         error_count += 1
                         continue
 
-        # Prikaži statistike v GUI
         display_csv_analysis(processed_count, error_count, model_differences)
 
-        # Posodobi kratko statistiko
         update_stats_label(processed_count, error_count, model_differences)
 
         message = f"Obdelanih {processed_count} vrstic"
@@ -443,7 +434,6 @@ def predict_csv():
 
 
 def update_stats_label(processed_count, error_count, model_differences):
-    """Posodobi kratko statistiko v CSV tabu"""
     if processed_count == 0:
         stats_text = "Ni bilo obdelanih vrstic"
     else:
@@ -462,7 +452,6 @@ def update_stats_label(processed_count, error_count, model_differences):
 
 
 def display_csv_analysis(processed_count, error_count, model_differences):
-    """Prikaže analizo CSV obdelave v GUI"""
     result_text = f"📊 ANALIZA CSV OBDELAVE:\n\n"
     result_text += f"Skupno obdelanih vrstic: {processed_count}\n"
     result_text += f"Napake: {error_count}\n\n"
@@ -472,18 +461,16 @@ def display_csv_analysis(processed_count, error_count, model_differences):
         result_text += f"Število vrstic z različnimi napovedmi: {len(model_differences)}\n"
         result_text += f"Odstotek razlik: {len(model_differences) / processed_count * 100:.1f}%\n\n"
 
-        # Prikaži prvih 10 razlik
         result_text += "Prvih 10 razlik:\n"
         for i, diff in enumerate(model_differences[:10]):
             result_text += f"Vrstica {diff['row']}: "
-            result_text += f"Hitrost={diff['speed_pred']} ({diff['speed_conf']:.2f}), "
-            result_text += f"Pospešek={diff['accel_pred']} ({diff['accel_conf']:.2f}), "
+            result_text += f"Hitrost={diff['speed_pred']}, "
+            result_text += f"Pospešek={diff['accel_pred']}, "
             result_text += f"Skupno={diff['combined_pred']}\n"
 
         if len(model_differences) > 10:
             result_text += f"... in še {len(model_differences) - 10} razlik\n"
 
-        # Statistika razlik po stopnjah
         result_text += "\n📈 PORAZDELITEV RAZLIK:\n"
         speed_preds = [d['speed_pred'] for d in model_differences]
         accel_preds = [d['accel_pred'] for d in model_differences]
@@ -652,7 +639,6 @@ csv_info.pack(anchor="w", padx=10, pady=10)
 
 ttk.Button(csv_frame, text="Obdelaj CSV datoteko", command=predict_csv).pack(pady=20)
 
-# Dodaj statistiko razlik
 stats_frame = ttk.LabelFrame(csv_frame, text="Statistika zadnje obdelave")
 stats_frame.pack(fill="x", padx=10, pady=10)
 
