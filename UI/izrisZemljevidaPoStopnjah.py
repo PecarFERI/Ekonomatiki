@@ -41,6 +41,22 @@ def preberi_stopnje_iz_matrike(stopnje_file):
                 print(f"Opozorilo: preskakujem vrstico z napako: {line}")
     return stopnje
 
+def dodaj_legendo(m):
+    legenda_html = """
+     <div style='position: fixed; 
+                 bottom: 50px; left: 50px; width: 180px; height: 220px; 
+                 background-color: white; border:2px solid grey; z-index:9999; font-size:14px;
+                 padding: 10px;'>
+     <b>Legenda stopenj:</b><br>
+     <i style='background: blue; width: 10px; height: 10px; display: inline-block;'></i> 0 – Mirovanje<br>
+     <i style='background: lightgreen; width: 10px; height: 10px; display: inline-block;'></i> 1<br>
+     <i style='background: green; width: 10px; height: 10px; display: inline-block;'></i> 2<br>
+     <i style='background: darkorange; width: 10px; height: 10px; display: inline-block;'></i> 3<br>
+     <i style='background: red; width: 10px; height: 10px; display: inline-block;'></i> 4<br>
+     <i style='background: darkred; width: 10px; height: 10px; display: inline-block;'></i> 5 
+     </div>
+    """
+    m.get_root().html.add_child(folium.Element(legenda_html))
 
 def izrisi_pot_na_zemljevidu(gpx_path, levels_path):
     koordinate = preberi_koordinate(gpx_path)
@@ -68,6 +84,8 @@ def izrisi_pot_na_zemljevidu(gpx_path, levels_path):
 
         PolyLine(segment, color=color, weight=5, opacity=0.8).add_to(m)
 
+    dodaj_legendo(m)
+    
     base_name = os.path.splitext(os.path.basename(gpx_path))[0]
     output_file = f"{base_name}_map.html"
     m.save(output_file)
