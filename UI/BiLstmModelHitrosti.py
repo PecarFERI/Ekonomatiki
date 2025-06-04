@@ -300,15 +300,15 @@ def train_model():
             if epoch % 20 == 0:
                 progress["value"] = epoch
                 status_label.config(
-                    text=f"Epoch: {epoch}/{epochs}, Loss: {loss.item():.4f}, LR: {optimizer.param_groups[0]['lr']:.6f}")
+                    text=f"Epohe: {epoch}/{epochs}, Loss: {loss.item():.4f}, LR: {optimizer.param_groups[0]['lr']:.6f}")
                 window.update()
 
         accuracy, report, y_true, y_pred = calculate_detailed_accuracy(model, X_tensor, y_tensor)
 
-        result_text = f"✓ Model trained. Final Loss: {loss.item():.4f}\n"
-        result_text += f"Overall Accuracy: {accuracy:.2f}%\n"
-        result_text += f"Macro Avg F1-Score: {report['macro avg']['f1-score']:.3f}\n"
-        result_text += f"Weighted Avg F1-Score: {report['weighted avg']['f1-score']:.3f}"
+        result_text = f"✓ Model naučen. Izguba: {loss.item():.4f}\n"
+        result_text += f"Accuracy: {accuracy:.2f}%\n"
+        #result_text += f"Macro Avg F1-Score: {report['macro avg']['f1-score']:.3f}\n"
+        #result_text += f"Weighted Avg F1-Score: {report['weighted avg']['f1-score']:.3f}"
 
         status_label.config(text=result_text)
         progress.destroy()
@@ -392,8 +392,8 @@ def predict_csv_file():
         txt_filename = filedialog.asksaveasfilename(
             title="Save predictions as",
             initialfile=output_filename,
-            defaultextension=".txt",
-            filetypes=(("Text files", "*.txt"), ("All files", "*.*"))
+            defaultextension=".csv",
+            filetypes=(("CSV files", "*.csv"), ("All files", "*.*"))
         )
 
         if not txt_filename:
@@ -544,14 +544,14 @@ training_tab = ttk.Frame(notebook)
 prediction_tab = ttk.Frame(notebook)
 visualization_tab = ttk.Frame(notebook)
 
-notebook.add(training_tab, text="Training")
-notebook.add(prediction_tab, text="Prediction")
-notebook.add(visualization_tab, text="Visualization")
+notebook.add(training_tab, text="Trening")
+notebook.add(prediction_tab, text="Napoved")
+notebook.add(visualization_tab, text="Vizualizacija")
 
-examples_frame = ttk.LabelFrame(training_tab, text="Add Training Examples")
+examples_frame = ttk.LabelFrame(training_tab, text="Dodaj primere")
 examples_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-tk.Label(examples_frame, text="Enter exactly 20 speed values").pack(anchor="w", padx=5,
+tk.Label(examples_frame, text="Vpišite natanko 20 vrednosti.").pack(anchor="w", padx=5,
                                                                                                 pady=5)
 speed_input = tk.Text(examples_frame, height=4, width=80)
 speed_input.pack(fill="both", expand=True, padx=5, pady=5)
@@ -559,7 +559,7 @@ speed_input.pack(fill="both", expand=True, padx=5, pady=5)
 economy_frame = ttk.Frame(examples_frame)
 economy_frame.pack(fill="x", padx=5, pady=5)
 
-tk.Label(economy_frame, text="Efficiency Level:").pack(anchor="w")
+tk.Label(economy_frame, text="Stopnja ekonomičnosti").pack(anchor="w")
 economy_var = tk.StringVar(value="0")
 
 radio_frame1 = ttk.Frame(economy_frame)
@@ -567,7 +567,7 @@ radio_frame1.pack(fill="x", pady=2)
 radio_frame2 = ttk.Frame(economy_frame)
 radio_frame2.pack(fill="x", pady=2)
 
-descriptions = ["Excellent (0)", "Very Good (1)", "Good (2)", "Moderate (3)", "Poor (4)", "Very Poor (5)"]
+descriptions = ["Mirovanje (0)", "Zelo ekonomično (1)", "Ekonomično (2)", "Zmerno ekonomično (3)", "Neekonomično (4)", "Zelo neekonomično (5)"]
 for i, desc in enumerate(descriptions[:3]):
     tk.Radiobutton(radio_frame1, text=desc, variable=economy_var, value=str(i)).pack(side="left", padx=10)
 
@@ -577,22 +577,22 @@ for i, desc in enumerate(descriptions[3:], 3):
 button_frame = ttk.Frame(examples_frame)
 button_frame.pack(fill="x", padx=5, pady=10)
 
-ttk.Button(button_frame, text="Add Example", command=add_example_manually).pack(side="left", padx=5)
-ttk.Button(button_frame, text="Load from CSV", command=load_from_csv).pack(side="left", padx=5)
-ttk.Button(button_frame, text="Clear Data", command=clear_data).pack(side="left", padx=5)
+ttk.Button(button_frame, text="Dodaj primer", command=add_example_manually).pack(side="left", padx=5)
+ttk.Button(button_frame, text="Naloži iz CSV datoteke", command=load_from_csv).pack(side="left", padx=5)
+ttk.Button(button_frame, text="Počisti data", command=clear_data).pack(side="left", padx=5)
 
-model_frame = ttk.LabelFrame(training_tab, text="Model Training")
+model_frame = ttk.LabelFrame(training_tab, text="Model")
 model_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-ttk.Button(model_frame, text="Train Model", command=train_model).pack(side="left", padx=10, pady=10)
-ttk.Button(model_frame, text="Save Model", command=save_model).pack(side="left", padx=10, pady=10)
-ttk.Button(model_frame, text="Load Model", command=load_model).pack(side="left", padx=10, pady=10)
-ttk.Button(model_frame, text="Clear Memory", command=clear_memory).pack(side="left", padx=10, pady=10)
+ttk.Button(model_frame, text="Treniraj model", command=train_model).pack(side="left", padx=10, pady=10)
+ttk.Button(model_frame, text="Shrani model", command=save_model).pack(side="left", padx=10, pady=10)
+ttk.Button(model_frame, text="Naloži model", command=load_model).pack(side="left", padx=10, pady=10)
+ttk.Button(model_frame, text="Počisti", command=clear_memory).pack(side="left", padx=10, pady=10)
 
 predict_frame = ttk.LabelFrame(prediction_tab, text="Single Prediction")
 predict_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-tk.Label(predict_frame, text="Enter exactly 20 speed values (space or comma separated):").pack(anchor="w", padx=5,
+tk.Label(predict_frame, text="Vpiši natanko 20 hitrosti, ločenih z vejico").pack(anchor="w", padx=5,
                                                                                                pady=5)
 predict_input = tk.Text(predict_frame, height=4, width=80)
 predict_input.pack(fill="both", expand=True, padx=5, pady=5)
@@ -600,27 +600,27 @@ predict_input.pack(fill="both", expand=True, padx=5, pady=5)
 single_predict_frame = ttk.Frame(predict_frame)
 single_predict_frame.pack(fill="x", padx=5, pady=5)
 
-ttk.Button(single_predict_frame, text="Predict Single", command=predict_single).pack(side="left", padx=5)
+ttk.Button(single_predict_frame, text="Napovej", command=predict_single).pack(side="left", padx=5)
 
 result_label = tk.Label(predict_frame, text="", font=("Arial", 11), justify="left")
 result_label.pack(fill="both", expand=True, padx=5, pady=5)
 
-csv_predict_frame = ttk.LabelFrame(prediction_tab, text="CSV File Prediction")
+csv_predict_frame = ttk.LabelFrame(prediction_tab, text="CSV napovedi")
 csv_predict_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
 tk.Label(csv_predict_frame,
-         text="Process CSV file with 20 speed columns (automatically names output with _output suffix):").pack(
+         text="Procesiraj CSV datoteko.").pack(
     anchor="w", padx=5, pady=5)
-ttk.Button(csv_predict_frame, text="Predict CSV File", command=predict_csv_file).pack(padx=5, pady=10)
+ttk.Button(csv_predict_frame, text="Napovej CSV datoteko", command=predict_csv_file).pack(padx=5, pady=10)
 
 plot_frame = ttk.LabelFrame(visualization_tab, text="Speed Patterns by Efficiency Level")
 plot_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-status_label = tk.Label(window, text="Enhanced BiLSTM model ready - Improved padding handling and accuracy calculation",
+status_label = tk.Label(window, text="BiLSTM model hitrosti pripravljen",
                         bd=1, relief=tk.SUNKEN, anchor=tk.W)
 status_label.grid(row=10, column=0, columnspan=2, sticky="we")
 
-ttk.Button(window, text="Exit", command=exit_application).grid(row=11, column=0, columnspan=2, pady=5)
+ttk.Button(window, text="Izhod", command=exit_application).grid(row=11, column=0, columnspan=2, pady=5)
 
 window.grid_rowconfigure(0, weight=1)
 window.grid_columnconfigure(0, weight=1)
