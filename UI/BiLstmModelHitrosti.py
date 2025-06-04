@@ -9,25 +9,34 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import gc
 import os
+from sklearn.metrics import classification_report, confusion_matrix
 
 
 class BiLSTMSpeedEconomyModel(nn.Module):
-    def __init__(self, input_size=1, hidden_size=64, num_layers=2, num_classes=5):
+    def __init__(self, input_size=1, hidden_size=64, num_layers=2, num_classes=6):
         super(BiLSTMSpeedEconomyModel, self).__init__()
         self.lstm = nn.LSTM(input_size=input_size,
                             hidden_size=hidden_size,
                             num_layers=num_layers,
-                            batch_first=True,  # vhodne oblike so batch size, sequence length, input size
-                            dropout=0.2 if num_layers > 1 else 0,
-                            bidirectional=True)  # BiLSTM, gre skozi zaporedje naprej in nazaj
+                            batch_first=True,
+                            dropout=0.3 if num_layers > 1 else 0,
+                            bidirectional=True)
 
         self.attention = nn.Sequential(
-            nn.Linear(hidden_size * 2, hidden_size * 2),  # podvojim zaradi bidirectional
-            nn.Tanh(),
-            nn.Linear(hidden_size * 2, 1),
+            nn.Linear(hidden_size * 2, hidden_size),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(hidden_size, 1),
             nn.Softmax(dim=1)
         )
-        self.fc = nn.Linear(hidden_size * 2, num_classes)
+
+        self.classifier = nn.Sequential(
+            nn.Linear(hidden_size * 2, hidden_size),
+            nn.BatchNorm1d(hidden_size), #stabilizacijo
+            nn.ReLU(), #regularizacijo
+            nn.Dropout(0.3),
+            nn.Linear(hidden_size, num_classes)
+        )
 
     def forward(self, x, mask=None):
         lstm_out, (hn, cn) = self.lstm(x)
@@ -53,7 +62,12 @@ model = None
 sequence_length = 20
 
 
-def normalize_data(data):
+def create_mask(data):
+    mask = (data != 0.0).float()
+    return mask
+
+
+def normalize_data_improved(data):
     data = np.array(data)
     non_zero_mask = data != 0.0
 
@@ -75,9 +89,25 @@ def normalize_data(data):
     return normalized
 
 
-def create_mask(data):
-    mask = (data != 0.0).float()
-    return mask
+def calculate_detailed_accuracy(model, X_tensor, y_tensor):
+    model.eval()
+    with torch.no_grad():
+        masks = torch.stack([create_mask(x.squeeze()) for x in X_tensor])
+
+        output = model(X_tensor, masks)
+        _, predicted = torch.max(output.data, 1)
+
+        total = y_tensor.size(0)
+        correct = (predicted == y_tensor).sum().item()
+        accuracy = 100 * correct / total
+
+        y_true = y_tensor.cpu().numpy()
+        y_pred = predicted.cpu().numpy()
+
+        class_names = ['Excellent', 'Very Good', 'Good', 'Moderate', 'Poor', 'Very Poor']
+        report = classification_report(y_true, y_pred, target_names=class_names, output_dict=True)
+
+        return accuracy, report, y_true, y_pred
 
 
 def add_example_manually():
@@ -171,7 +201,6 @@ def save_model():
         messagebox.showerror("Error", f"Failed to save model: {e}")
 
 
-
 def load_model():
     global model
 
@@ -193,7 +222,7 @@ def load_model():
             input_size=1,
             hidden_size=128,
             num_layers=3,
-            num_classes=5
+            num_classes=6
         )
 
         model.load_state_dict(torch.load(filename, map_location=torch.device('cpu')))
@@ -204,6 +233,7 @@ def load_model():
     except Exception as e:
         messagebox.showerror("Error", f"Failed to load model: {str(e)}")
         print(f"Detailed error: {repr(e)}")
+
 
 def train_model():
     global model
@@ -290,7 +320,6 @@ def train_model():
         messagebox.showerror("Error", f"Error during training: {e}")
 
 
-
 def predict_single():
     global model
 
@@ -305,34 +334,35 @@ def predict_single():
 
         speed_values = [float(x) for x in speed_str.replace(',', ' ').split()]
 
-        if len(speed_values) < 5:
-            raise ValueError("Please enter at least 5 speed values")
+        if len(speed_values) != 20:
+            raise ValueError(f"Please enter exactly 20 speed values (got {len(speed_values)})")
 
-        prepared_sequence = prepare_sequence(speed_values, sequence_length)
-        normalized_speed = normalize_data(prepared_sequence)
-
+        normalized_speed = normalize_data_improved(speed_values)
         input_tensor = torch.tensor(np.array([normalized_speed]), dtype=torch.float32).unsqueeze(2)
 
         model.eval()
         with torch.no_grad():
-            output = model(input_tensor)
+            mask = create_mask(torch.tensor(normalized_speed)).unsqueeze(0)
+            output = model(input_tensor, mask)
             probabilities = torch.nn.functional.softmax(output, dim=1)
             _, predicted = torch.max(output.data, 1)
             predicted_level = predicted.item()
 
         descriptions = [
-            f"Economy Level 0",
-            f"Economy Level 1",
-            f"Economy Level 2",
-            f"Economy Level 3",
-            f"Economy Level 4"
+            f"Efficiency Level 0 - Excellent (Optimal driving)",
+            f"Efficiency Level 1 - Very Good (Minor improvements possible)",
+            f"Efficiency Level 2 - Good (Some efficiency gains possible)",
+            f"Efficiency Level 3 - Moderate (Noticeable improvements needed)",
+            f"Efficiency Level 4 - Poor (Significant improvements required)",
+            f"Efficiency Level 5 - Very Poor (Major efficiency issues)"
         ]
 
-        result_text = f"Predicted Economy Level: {predicted_level}\n{descriptions[predicted_level]}"
+        result_text = f"Predicted: {descriptions[predicted_level]}\n"
+        result_text += f"Confidence: {probabilities[0][predicted_level].item():.1%}\n"
 
-        result_text += "\n\nProbabilities:"
+        result_text += "\nAll Probabilities:"
         for i, prob in enumerate(probabilities[0]):
-            result_text += f"\nLevel {i}: {prob.item():.2%}"
+            result_text += f"\nLevel {i}: {prob.item():.1%}"
 
         result_label.config(text=result_text)
 
@@ -422,26 +452,31 @@ def predict_csv_file():
     except Exception as e:
         messagebox.showerror("Error", f"CSV prediction error: {e}")
 
-
 def update_plot():
     if not examples_X or not examples_y:
         return
 
-    plt.figure(figsize=(8, 4))
+    plt.figure(figsize=(12, 8))
 
-    levels_shown = set()
+    colors = ['#2E8B57', '#32CD32', '#FFD700', '#FFA500', '#FF6347', '#DC143C']
+    class_names = ['Excellent', 'Very Good', 'Good', 'Moderate', 'Poor', 'Very Poor']
+
+    plotted_classes = set()
+
     for i, (x, y) in enumerate(zip(examples_X, examples_y)):
-        if y not in levels_shown and len(levels_shown) < 5:
-            plt.plot(x, label=f"Level {y}")
-            levels_shown.add(y)
+        if y not in plotted_classes:
+            plt.plot(x, label=f"Level {y}: {class_names[y]}",
+                     color=colors[y], alpha=0.8, linewidth=2)
+            plotted_classes.add(y)
+        else:
+            plt.plot(x, color=colors[y], alpha=0.3, linewidth=1)
 
-            if len(levels_shown) >= 5:
-                break
-
-    plt.legend()
-    plt.title("Example Speed Patterns")
-    plt.xlabel("Time Steps")
-    plt.ylabel("Normalized Speed (0.0 = padding)")
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.title("Speed Patterns by Efficiency Level", fontsize=14, fontweight='bold')
+    plt.xlabel("Time Steps (1-20)", fontsize=12)
+    plt.ylabel("Normalized Speed (0.0 = padding)", fontsize=12)
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
 
     if hasattr(update_plot, 'canvas'):
         update_plot.canvas.get_tk_widget().destroy()
@@ -455,15 +490,16 @@ def update_plot():
 
 
 def plot_loss(losses):
-    plt.figure(figsize=(8, 4))
-    plt.plot(losses)
-    plt.title("Training Loss")
-    plt.xlabel("Epoch")
-    plt.ylabel("Loss")
-    plt.grid(True)
+    plt.figure(figsize=(10, 6))
+    plt.plot(losses, 'b-', linewidth=2)
+    plt.title("Training Loss Over Time", fontsize=14, fontweight='bold')
+    plt.xlabel("Epoch", fontsize=12)
+    plt.ylabel("Loss", fontsize=12)
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
 
     try:
-        plt.savefig("training_loss.png")
+        plt.savefig("training_loss.png", dpi=300, bbox_inches='tight')
     except:
         pass
 
@@ -483,7 +519,7 @@ def clear_data():
 
 def clear_memory():
     try:
-        torch.cuda.empty_cache()  # Če bi bil model na CUDA
+        torch.cuda.empty_cache()
     except:
         pass
 
@@ -497,10 +533,9 @@ def exit_application():
         window.destroy()
 
 
-# GUI Setup
 window = tk.Tk()
-window.title("BiLSTM Speed Economy Model - Enhanced")
-window.geometry("800x700")
+window.title("BiLSTM model hitrosti")
+window.geometry("1000x800")
 
 notebook = ttk.Notebook(window)
 notebook.grid(row=0, column=0, columnspan=2, sticky="nsew", padx=10, pady=10)
@@ -513,22 +548,31 @@ notebook.add(training_tab, text="Training")
 notebook.add(prediction_tab, text="Prediction")
 notebook.add(visualization_tab, text="Visualization")
 
-# Training Tab
 examples_frame = ttk.LabelFrame(training_tab, text="Add Training Examples")
 examples_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-tk.Label(examples_frame, text="Enter speed values (space or comma separated):").pack(anchor="w", padx=5, pady=5)
-speed_input = tk.Text(examples_frame, height=5, width=60)
+tk.Label(examples_frame, text="Enter exactly 20 speed values").pack(anchor="w", padx=5,
+                                                                                                pady=5)
+speed_input = tk.Text(examples_frame, height=4, width=80)
 speed_input.pack(fill="both", expand=True, padx=5, pady=5)
 
 economy_frame = ttk.Frame(examples_frame)
 economy_frame.pack(fill="x", padx=5, pady=5)
 
-tk.Label(economy_frame, text="Economy Level:").pack(side="left")
+tk.Label(economy_frame, text="Efficiency Level:").pack(anchor="w")
 economy_var = tk.StringVar(value="0")
-for i, desc in enumerate(
-        ["Very Economical (0)", "Economical (1)", "Moderate (2)", "Uneconomical (3)", "Very Uneconomical (4)"]):
-    tk.Radiobutton(economy_frame, text=desc, variable=economy_var, value=str(i)).pack(side="left", padx=5)
+
+radio_frame1 = ttk.Frame(economy_frame)
+radio_frame1.pack(fill="x", pady=2)
+radio_frame2 = ttk.Frame(economy_frame)
+radio_frame2.pack(fill="x", pady=2)
+
+descriptions = ["Excellent (0)", "Very Good (1)", "Good (2)", "Moderate (3)", "Poor (4)", "Very Poor (5)"]
+for i, desc in enumerate(descriptions[:3]):
+    tk.Radiobutton(radio_frame1, text=desc, variable=economy_var, value=str(i)).pack(side="left", padx=10)
+
+for i, desc in enumerate(descriptions[3:], 3):
+    tk.Radiobutton(radio_frame2, text=desc, variable=economy_var, value=str(i)).pack(side="left", padx=10)
 
 button_frame = ttk.Frame(examples_frame)
 button_frame.pack(fill="x", padx=5, pady=10)
@@ -545,12 +589,12 @@ ttk.Button(model_frame, text="Save Model", command=save_model).pack(side="left",
 ttk.Button(model_frame, text="Load Model", command=load_model).pack(side="left", padx=10, pady=10)
 ttk.Button(model_frame, text="Clear Memory", command=clear_memory).pack(side="left", padx=10, pady=10)
 
-# Prediction Tab
 predict_frame = ttk.LabelFrame(prediction_tab, text="Single Prediction")
 predict_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-tk.Label(predict_frame, text="Enter speed values (space or comma separated):").pack(anchor="w", padx=5, pady=5)
-predict_input = tk.Text(predict_frame, height=5, width=60)
+tk.Label(predict_frame, text="Enter exactly 20 speed values (space or comma separated):").pack(anchor="w", padx=5,
+                                                                                               pady=5)
+predict_input = tk.Text(predict_frame, height=4, width=80)
 predict_input.pack(fill="both", expand=True, padx=5, pady=5)
 
 single_predict_frame = ttk.Frame(predict_frame)
@@ -558,24 +602,22 @@ single_predict_frame.pack(fill="x", padx=5, pady=5)
 
 ttk.Button(single_predict_frame, text="Predict Single", command=predict_single).pack(side="left", padx=5)
 
-result_label = tk.Label(predict_frame, text="", font=("Arial", 12), justify="left")
+result_label = tk.Label(predict_frame, text="", font=("Arial", 11), justify="left")
 result_label.pack(fill="both", expand=True, padx=5, pady=5)
 
-# CSV Prediction Frame
 csv_predict_frame = ttk.LabelFrame(prediction_tab, text="CSV File Prediction")
 csv_predict_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-tk.Label(csv_predict_frame, text="Process entire CSV file and save predictions to TXT file:").pack(anchor="w", padx=5,
-                                                                                                   pady=5)
+tk.Label(csv_predict_frame,
+         text="Process CSV file with 20 speed columns (automatically names output with _output suffix):").pack(
+    anchor="w", padx=5, pady=5)
 ttk.Button(csv_predict_frame, text="Predict CSV File", command=predict_csv_file).pack(padx=5, pady=10)
 
-# Visualization Tab
-plot_frame = ttk.LabelFrame(visualization_tab, text="Speed Patterns")
+plot_frame = ttk.LabelFrame(visualization_tab, text="Speed Patterns by Efficiency Level")
 plot_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-# Status and Exit
-status_label = tk.Label(window, text="Ready - Enhanced with CSV prediction and padding support", bd=1, relief=tk.SUNKEN,
-                        anchor=tk.W)
+status_label = tk.Label(window, text="Enhanced BiLSTM model ready - Improved padding handling and accuracy calculation",
+                        bd=1, relief=tk.SUNKEN, anchor=tk.W)
 status_label.grid(row=10, column=0, columnspan=2, sticky="we")
 
 ttk.Button(window, text="Exit", command=exit_application).grid(row=11, column=0, columnspan=2, pady=5)
@@ -584,7 +626,5 @@ window.grid_rowconfigure(0, weight=1)
 window.grid_columnconfigure(0, weight=1)
 
 update_plot()
-
 window.protocol("WM_DELETE_WINDOW", exit_application)
-
 window.mainloop()
