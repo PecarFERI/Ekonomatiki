@@ -29,20 +29,28 @@ class BiLSTMSpeedEconomyModel(nn.Module):
         )
         self.fc = nn.Linear(hidden_size * 2, num_classes)
 
-    def forward(self, x):
-        lstm_out, (hn, cn) = self.lstm(x)  # batch, seq_len, hidden_size*2
+    def forward(self, x, mask=None):
+        lstm_out, (hn, cn) = self.lstm(x)
+
+        if mask is not None: #maskiranje pove katere so veljavne in katere ne
+            lstm_out = lstm_out * mask.unsqueeze(-1)
 
         attention_weights = self.attention(lstm_out)
+
+        if mask is not None:
+            attention_weights = attention_weights * mask.unsqueeze(-1) #da sestevek 1 tudi pri maskiranju
+            attention_weights = attention_weights / (attention_weights.sum(dim=1, keepdim=True) + 1e-8)
+
         context_vector = torch.sum(attention_weights * lstm_out, dim=1)
 
-        out = self.fc(context_vector)
+        out = self.classifier(context_vector)
         return out
 
 
 examples_X = []
 examples_y = []
 model = None
-sequence_length = 30
+sequence_length = 20
 
 
 def normalize_data(data):
@@ -67,19 +75,9 @@ def normalize_data(data):
     return normalized
 
 
-def prepare_sequence(speed_values, target_length=30):
-    if len(speed_values) == target_length:
-        return speed_values
-    elif len(speed_values) < target_length:
-        padded = speed_values + [0.0] * (target_length - len(speed_values))
-        return padded
-    else:
-        interpolated = np.interp(
-            np.linspace(0, 1, target_length),
-            np.linspace(0, 1, len(speed_values)),
-            speed_values
-        )
-        return interpolated.tolist()
+def create_mask(data):
+    mask = (data != 0.0).float()
+    return mask
 
 
 def add_example_manually():
@@ -207,12 +205,11 @@ def load_model():
         messagebox.showerror("Error", f"Failed to load model: {str(e)}")
         print(f"Detailed error: {repr(e)}")
 
-
 def train_model():
     global model
 
-    if len(examples_X) < 10:
-        messagebox.showwarning("Insufficient Data", "Please add at least 10 examples.")
+    if len(examples_X) < 20:
+        messagebox.showwarning("Insufficient Data", "Please add at least 20 examples for robust training.")
         return
 
     try:
@@ -220,18 +217,25 @@ def train_model():
         y_tensor = torch.tensor(examples_y, dtype=torch.long)
 
         if model is None:
-            model = BiLSTMSpeedEconomyModel(hidden_size=128, num_layers=3, num_classes=5)
+            model = BiLSTMSpeedEconomyModel(hidden_size=128, num_layers=3, num_classes=6)
             for name, param in model.named_parameters():
-                if 'weight' in name:
-                    nn.init.xavier_normal_(param)  # stabilizira malo
+                if 'weight' in name and param.dim() > 1:
+                    nn.init.xavier_uniform_(param)
+                elif 'bias' in name:
+                    nn.init.zeros_(param)
 
-        criterion = nn.CrossEntropyLoss()
-        optimizer = optim.AdamW(model.parameters(), lr=0.0001, weight_decay=0.01)
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=10, factor=0.5)
+        #weighted loss za uravnotežene razrede
+        class_counts = np.bincount(examples_y, minlength=6)
+        class_weights = 1.0 / (class_counts + 1e-8)
+        class_weights = torch.tensor(class_weights, dtype=torch.float32)
+        criterion = nn.CrossEntropyLoss(weight=class_weights)
 
-        epochs = 500
+        optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=0.01) #da se nea prenauci
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=15, factor=0.5)
+
+        epochs = 800
         best_loss = float('inf')
-        patience = 20
+        patience = 30
         patience_counter = 0
         losses = []
 
@@ -240,8 +244,13 @@ def train_model():
         progress["maximum"] = epochs
 
         for epoch in range(epochs):
+            model.train()
             optimizer.zero_grad()
-            output = model(X_tensor)
+
+            # Ustvari maske
+            masks = torch.stack([create_mask(x.squeeze()) for x in X_tensor])
+
+            output = model(X_tensor, masks)
             loss = criterion(output, y_tensor)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -258,21 +267,20 @@ def train_model():
                     status_label.config(text=f"Early stopping at epoch {epoch}")
                     break
 
-            if epoch % 10 == 0:
+            if epoch % 20 == 0:
                 progress["value"] = epoch
                 status_label.config(
                     text=f"Epoch: {epoch}/{epochs}, Loss: {loss.item():.4f}, LR: {optimizer.param_groups[0]['lr']:.6f}")
                 window.update()
 
-        # ocena natančnosti
-        with torch.no_grad():
-            output = model(X_tensor)
-            _, predicted = torch.max(output.data, 1)
-            total = y_tensor.size(0)
-            correct = (predicted == y_tensor).sum().item()
-            accuracy = 100 * correct / total
+        accuracy, report, y_true, y_pred = calculate_detailed_accuracy(model, X_tensor, y_tensor)
 
-        status_label.config(text=f"✓ Model trained. Final Loss: {loss.item():.4f}, Accuracy: {accuracy:.2f}%")
+        result_text = f"✓ Model trained. Final Loss: {loss.item():.4f}\n"
+        result_text += f"Overall Accuracy: {accuracy:.2f}%\n"
+        result_text += f"Macro Avg F1-Score: {report['macro avg']['f1-score']:.3f}\n"
+        result_text += f"Weighted Avg F1-Score: {report['weighted avg']['f1-score']:.3f}"
+
+        status_label.config(text=result_text)
         progress.destroy()
         plot_loss(losses)
 
@@ -280,6 +288,7 @@ def train_model():
 
     except Exception as e:
         messagebox.showerror("Error", f"Error during training: {e}")
+
 
 
 def predict_single():
