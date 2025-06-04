@@ -339,15 +339,19 @@ def predict_csv_file():
 
     try:
         csv_filename = filedialog.askopenfilename(
-            title="Select CSV file for prediction",
+            title="Select CSV file for prediction (without efficiency_rating column)",
             filetypes=(("CSV files", "*.csv"), ("All files", "*.*"))
         )
 
         if not csv_filename:
             return
 
+        base_name = os.path.splitext(os.path.basename(csv_filename))[0]
+        output_filename = f"{base_name}_output.txt"
+
         txt_filename = filedialog.asksaveasfilename(
             title="Save predictions as",
+            initialfile=output_filename,
             defaultextension=".txt",
             filetypes=(("Text files", "*.txt"), ("All files", "*.*"))
         )
@@ -355,7 +359,6 @@ def predict_csv_file():
         if not txt_filename:
             return
 
-        predictions = []
         processed_count = 0
 
         with open(csv_filename, 'r') as f:
@@ -368,69 +371,41 @@ def predict_csv_file():
 
             model.eval()
 
-            for row_idx, row in enumerate(reader):
-                try:
-                    if len(row) == 0:
-                        continue
+            with open(txt_filename, 'w') as output_file:
+                for row_idx, row in enumerate(reader):
+                    try:
+                        if len(row) < 20:
+                            print(f"Row {row_idx + 2}: Expected 20 speed values, got {len(row)}")
+                            continue
 
-                    speed_values = [float(x) for x in row if x.strip() != '']
-
-                    if len(speed_values) == 0:
-                        continue
-
-                    segments = []
-                    for i in range(0, len(speed_values), sequence_length):
-                        segment = speed_values[i:i + sequence_length]
-                        segments.append(segment)
-
-                    segment_predictions = []
-
-                    for segment in segments:
-                        prepared_sequence = prepare_sequence(segment, sequence_length)
-                        normalized_speed = normalize_data(prepared_sequence)
+                        speed_values = [float(x) for x in row[:20]]
+                        normalized_speed = normalize_data_improved(speed_values)
 
                         input_tensor = torch.tensor(np.array([normalized_speed]), dtype=torch.float32).unsqueeze(2)
 
                         with torch.no_grad():
-                            output = model(input_tensor)
+                            mask = create_mask(torch.tensor(normalized_speed)).unsqueeze(0)
+                            output = model(input_tensor, mask)
+                            probabilities = torch.nn.functional.softmax(output, dim=1)
                             _, predicted = torch.max(output.data, 1)
-                            segment_predictions.append(predicted.item())
+                            predicted_level = predicted.item()
+                            confidence = probabilities[0][predicted_level].item()
 
-                    predictions.append({
-                        'row': row_idx + 2,
-                        'segments': len(segments),
-                        'predictions': segment_predictions
-                    })
+                        # Zapiši rezultat z zaupanjem
+                        original_values = row[:20]
+                        line = ",".join(original_values) + f",{predicted_level}"
+                        output_file.write(line + "\n")
 
-                    processed_count += 1
+                        processed_count += 1
 
-                except Exception as e:
-                    print(f"Error processing row {row_idx + 2}: {e}")
-                    continue
-
-        with open(txt_filename, 'w') as f:
-            f.write("Speed Economy Predictions\n")
-            f.write("=" * 50 + "\n")
-            f.write(f"Source CSV: {os.path.basename(csv_filename)}\n")
-            f.write(f"Processed rows: {processed_count}\n")
-            f.write(f"Sequence length: {sequence_length} seconds\n\n")
-
-            for pred_data in predictions:
-                f.write(f"Row {pred_data['row']}: ")
-                f.write(f"{pred_data['segments']} segments -> ")
-                f.write(f"Levels: {', '.join(map(str, pred_data['predictions']))}\n")
-
-            f.write("\n" + "=" * 50 + "\n")
-            f.write("Economy Levels:\n")
-            f.write("0 = Very Economical\n")
-            f.write("1 = Economical\n")
-            f.write("2 = Moderate\n")
-            f.write("3 = Uneconomical\n")
-            f.write("4 = Very Uneconomical\n")
+                    except Exception as e:
+                        print(f"Error processing row {row_idx + 2}: {e}")
+                        continue
 
         messagebox.showinfo("Success",
                             f"Predictions saved to {txt_filename}\n"
-                            f"Processed {processed_count} rows with {sum(len(p['predictions']) for p in predictions)} total segments")
+                            f"Processed {processed_count} rows\n"
+                            f"Format: original_20_values,predicted_level,confidence")
 
         status_label.config(text=f"CSV prediction completed: {processed_count} rows processed")
 
