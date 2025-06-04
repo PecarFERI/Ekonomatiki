@@ -222,8 +222,10 @@ class UnifiedEconomyPredictor:
             try:
                 combined_probabilities = []
                 for i in range(6):
-                    avg_prob = (results['speed']['probabilities'][i] + results['acceleration']['probabilities'][i]) / 2
-                    combined_probabilities.append(avg_prob)
+                    # Spremenjena utež: 0.6 za hitrost, 0.4 za pospešek
+                    weighted_prob = (results['speed']['probabilities'][i] * 0.6 +
+                                     results['acceleration']['probabilities'][i] * 0.4)
+                    combined_probabilities.append(weighted_prob)
 
                 combined_prediction = combined_probabilities.index(max(combined_probabilities))
                 results['combined'] = {
@@ -304,6 +306,23 @@ def predict_manual():
         messagebox.showerror("Napaka", f"Napaka pri napovedovanju: {e}")
 
 
+def generate_output_filename(input_filename):
+    """Generira ime output datoteke na podlagi input datoteke"""
+    # Dobi ime datoteke brez poti
+    base_name = os.path.basename(input_filename)
+    # Odstrani končnico .csv
+    name_without_ext = os.path.splitext(base_name)[0]
+    # Zamenjaj _predict z _output
+    if name_without_ext.endswith('_predict'):
+        output_name = name_without_ext.replace('_predict', '_output') + '.csv'
+    else:
+        output_name = name_without_ext + '_output.csv'
+
+    # Dobi mapo input datoteke
+    input_dir = os.path.dirname(input_filename)
+    return os.path.join(input_dir, output_name)
+
+
 def predict_csv():
     if predictor.speed_model is None and predictor.acceleration_model is None:
         messagebox.showwarning("Opozorilo", "Naloži vsaj en model")
@@ -317,8 +336,13 @@ def predict_csv():
     if not csv_filename:
         return
 
+    # Generiraj ime output datoteke
+    suggested_output = generate_output_filename(csv_filename)
+
     output_filename = filedialog.asksaveasfilename(
         title="Shrani rezultate",
+        initialfile=os.path.basename(suggested_output),
+        initialdir=os.path.dirname(suggested_output),
         defaultextension=".csv",
         filetypes=(("CSV files", "*.csv"), ("All files", "*.*"))
     )
@@ -329,6 +353,7 @@ def predict_csv():
     try:
         processed_count = 0
         error_count = 0
+        model_differences = []  # Za sledenje razlik med modeli
 
         with open(csv_filename, 'r') as f:
             reader = csv.reader(f)
@@ -372,6 +397,19 @@ def predict_csv():
                         predicted_label = ""
                         if 'combined' in results:
                             predicted_label = results['combined']['prediction']
+                            # Spremljaj razlike med modeli
+                            if 'speed' in results and 'acceleration' in results:
+                                speed_pred = results['speed']['prediction']
+                                accel_pred = results['acceleration']['prediction']
+                                if speed_pred != accel_pred:
+                                    model_differences.append({
+                                        'row': row_idx + 2,
+                                        'speed_pred': speed_pred,
+                                        'accel_pred': accel_pred,
+                                        'combined_pred': predicted_label,
+                                        'speed_conf': results['speed']['confidence'],
+                                        'accel_conf': results['acceleration']['confidence']
+                                    })
                         elif 'speed' in results:
                             predicted_label = results['speed']['prediction']
                         elif 'acceleration' in results:
@@ -386,6 +424,9 @@ def predict_csv():
                         error_count += 1
                         continue
 
+        # Prikaži statistike v GUI
+        display_csv_analysis(processed_count, error_count, model_differences)
+
         message = f"Obdelanih {processed_count} vrstic"
         if error_count > 0:
             message += f", {error_count} napak"
@@ -396,6 +437,50 @@ def predict_csv():
 
     except Exception as e:
         messagebox.showerror("Napaka", f"Napaka pri obdelavi CSV: {e}")
+
+
+def display_csv_analysis(processed_count, error_count, model_differences):
+    """Prikaže analizo CSV obdelave v GUI"""
+    result_text = f"📊 ANALIZA CSV OBDELAVE:\n\n"
+    result_text += f"Skupno obdelanih vrstic: {processed_count}\n"
+    result_text += f"Napake: {error_count}\n\n"
+
+    if model_differences:
+        result_text += f"🔍 RAZLIKE MED MODELI:\n"
+        result_text += f"Število vrstic z različnimi napovedmi: {len(model_differences)}\n"
+        result_text += f"Odstotek razlik: {len(model_differences) / processed_count * 100:.1f}%\n\n"
+
+        # Prikaži prvih 10 razlik
+        result_text += "Prvih 10 razlik:\n"
+        for i, diff in enumerate(model_differences[:10]):
+            result_text += f"Vrstica {diff['row']}: "
+            result_text += f"Hitrost={diff['speed_pred']} ({diff['speed_conf']:.2f}), "
+            result_text += f"Pospešek={diff['accel_pred']} ({diff['accel_conf']:.2f}), "
+            result_text += f"Skupno={diff['combined_pred']}\n"
+
+        if len(model_differences) > 10:
+            result_text += f"... in še {len(model_differences) - 10} razlik\n"
+
+        # Statistika razlik po stopnjah
+        result_text += "\n📈 PORAZDELITEV RAZLIK:\n"
+        speed_preds = [d['speed_pred'] for d in model_differences]
+        accel_preds = [d['accel_pred'] for d in model_differences]
+
+        for i in range(6):
+            speed_count = speed_preds.count(i)
+            accel_count = accel_preds.count(i)
+            if speed_count > 0 or accel_count > 0:
+                result_text += f"Stopnja {i}: Hitrost={speed_count}x, Pospešek={accel_count}x\n"
+    else:
+        result_text += "✅ Vsi modeli so se strinjali pri vseh napovedih!\n"
+
+    result_text += f"\n💡 Utež kombinacije: 60% hitrost, 40% pospešek"
+
+    result_display.config(state='normal')
+    result_display.delete('1.0', tk.END)
+    result_display.insert('1.0', result_text)
+    result_display.config(state='disabled')
+
 
 def display_results(results):
     result_text = ""
@@ -417,7 +502,7 @@ def display_results(results):
     if 'combined' in results:
         combined_pred = results['combined']['prediction']
         combined_conf = results['combined']['confidence']
-        result_text += f"🎯 SKUPNA OCENA:\n"
+        result_text += f"🎯 SKUPNA OCENA (60% hitrost, 40% pospešek):\n"
         result_text += f"Napoved: Stopnja {combined_pred} - {predictor.class_names[combined_pred]}\n"
         result_text += f"Zaupanje: {combined_conf:.1%}\n\n"
 
@@ -538,7 +623,8 @@ csv_info = tk.Label(csv_frame,
                          "- Če imaš oba modela: prvih 20 stolpcev = hitrost, naslednjih 20 = pospešek\n" +
                          "- Če imaš samo model za hitrost: prvih 20 stolpcev = hitrost\n" +
                          "- Če imaš samo model za pospešek: prvih 20 stolpcev = pospešek\n" +
-                         "- Ostali stolpci bodo prepisani v rezultat",
+                         "- Ostali stolpci bodo prepisani v rezultat\n" +
+                         "- Output datoteka bo poimenovana: ime_output.csv",
                     justify="left")
 csv_info.pack(anchor="w", padx=10, pady=10)
 
