@@ -49,11 +49,11 @@ def dodaj_legendo(m):
                  padding: 10px;'>
      <b>Legenda stopenj:</b><br>
      <i style='background: blue; width: 10px; height: 10px; display: inline-block;'></i> 0 – Mirovanje<br>
-     <i style='background: lightgreen; width: 10px; height: 10px; display: inline-block;'></i> 1<br>
-     <i style='background: green; width: 10px; height: 10px; display: inline-block;'></i> 2<br>
-     <i style='background: darkorange; width: 10px; height: 10px; display: inline-block;'></i> 3<br>
-     <i style='background: red; width: 10px; height: 10px; display: inline-block;'></i> 4<br>
-     <i style='background: darkred; width: 10px; height: 10px; display: inline-block;'></i> 5 
+     <i style='background: lightgreen; width: 10px; height: 10px; display: inline-block;'></i> 1 - Zelo ekonomično<br>
+     <i style='background: green; width: 10px; height: 10px; display: inline-block;'></i> 2 - Ekonomično<br>
+     <i style='background: darkorange; width: 10px; height: 10px; display: inline-block;'></i> 3 - Zmerno ekonomično<br>
+     <i style='background: red; width: 10px; height: 10px; display: inline-block;'></i> 4 - Neekonomično<br>
+     <i style='background: darkred; width: 10px; height: 10px; display: inline-block;'></i> 5 - Zelo neekonomično<br> 
      </div>
     """
     m.get_root().html.add_child(folium.Element(legenda_html))
@@ -85,7 +85,7 @@ def izrisi_pot_na_zemljevidu(gpx_path, levels_path):
         PolyLine(segment, color=color, weight=5, opacity=0.8).add_to(m)
 
     dodaj_legendo(m)
-    
+
     base_name = os.path.splitext(os.path.basename(gpx_path))[0]
     output_file = f"{base_name}_map.html"
     m.save(output_file)
