@@ -11,7 +11,12 @@ import os
 from sklearn.metrics import classification_report
 import subprocess
 import sys
+import webbrowser
+import gpxpy
+import folium
+from folium import PolyLine
 
+# ==================== MODEL DEFINITIONS ====================
 class BiLSTMSpeedEconomyModel(nn.Module):
     def __init__(self, input_size=1, hidden_size=64, num_layers=2, num_classes=6):
         super(BiLSTMSpeedEconomyModel, self).__init__()
@@ -40,12 +45,10 @@ class BiLSTMSpeedEconomyModel(nn.Module):
 
     def forward(self, x, mask=None):
         lstm_out, (hn, cn) = self.lstm(x)
-
         if mask is not None:
             lstm_out = lstm_out * mask.unsqueeze(-1)
 
         attention_weights = self.attention(lstm_out)
-
         if mask is not None:
             attention_weights = attention_weights * mask.unsqueeze(-1)
             attention_weights = attention_weights / (attention_weights.sum(dim=1, keepdim=True) + 1e-8)
@@ -53,7 +56,6 @@ class BiLSTMSpeedEconomyModel(nn.Module):
         context_vector = torch.sum(attention_weights * lstm_out, dim=1)
         out = self.classifier(context_vector)
         return out
-
 
 class AccelerationEconomyModel(nn.Module):
     def __init__(self, input_size=1, hidden_size=64, num_layers=2, num_classes=6):
@@ -92,22 +94,19 @@ class AccelerationEconomyModel(nn.Module):
 
     def forward(self, x, mask=None):
         lstm_out, (hn, cn) = self.bilstm(x)
-
         if mask is not None:
             lstm_out = lstm_out * mask.unsqueeze(-1)
 
         attention_weights = self.attention(lstm_out)
-
         if mask is not None:
             attention_weights = attention_weights * mask.unsqueeze(-1)
             attention_weights = attention_weights / (attention_weights.sum(dim=1, keepdim=True) + 1e-8)
 
         context_vector = torch.sum(attention_weights * lstm_out, dim=1)
-
         out = self.classifier(context_vector)
         return out
 
-
+# ==================== PREDICTOR CLASS ====================
 class UnifiedEconomyPredictor:
     def __init__(self):
         self.speed_model = None
@@ -161,7 +160,6 @@ class UnifiedEconomyPredictor:
             return data
 
         non_zero_data = data[non_zero_mask]
-
         q25, q75 = np.percentile(non_zero_data, [25, 75])
         median = np.median(non_zero_data)
         iqr = q75 - q25
@@ -171,7 +169,6 @@ class UnifiedEconomyPredictor:
 
         normalized = np.zeros_like(data)
         normalized[non_zero_mask] = (data[non_zero_mask] - median) / iqr
-
         return normalized
 
     def predict_single(self, speed_data, acceleration_data):
@@ -193,8 +190,6 @@ class UnifiedEconomyPredictor:
                         'confidence': probabilities[0][predicted.item()].item(),
                         'probabilities': probabilities[0].tolist()
                     }
-                    print(
-                        f"Napoved hitrosti: {predicted.item()}, zaupanje: {probabilities[0][predicted.item()].item():.3f}")
             except Exception as e:
                 print(f"Napaka pri napovedi hitrosti: {e}")
 
@@ -214,8 +209,6 @@ class UnifiedEconomyPredictor:
                         'confidence': probabilities[0][predicted.item()].item(),
                         'probabilities': probabilities[0].tolist()
                     }
-                    print(
-                        f"Napoved pospeška: {predicted.item()}, zaupanje: {probabilities[0][predicted.item()].item():.3f}")
             except Exception as e:
                 print(f"Napaka pri napovedi pospeška: {e}")
 
@@ -223,9 +216,8 @@ class UnifiedEconomyPredictor:
             try:
                 combined_probabilities = []
                 for i in range(6):
-                    #dodana utez 0,6 za model hittosti
                     weighted_prob = (results['speed']['probabilities'][i] * 0.6 +
-                                     results['acceleration']['probabilities'][i] * 0.4)
+                                   results['acceleration']['probabilities'][i] * 0.4)
                     combined_probabilities.append(weighted_prob)
 
                 combined_prediction = combined_probabilities.index(max(combined_probabilities))
@@ -234,43 +226,141 @@ class UnifiedEconomyPredictor:
                     'confidence': max(combined_probabilities),
                     'probabilities': combined_probabilities
                 }
-                print(f"Skupna napoved: {combined_prediction}, zaupanje: {max(combined_probabilities):.3f}")
             except Exception as e:
                 print(f"Napaka pri skupni napovedi: {e}")
 
         return results
 
+# ==================== MAP DRAWING FUNCTIONS ====================
+def read_coordinates(gpx_file):
+    """Read coordinates from GPX file"""
+    with open(gpx_file, 'r') as f:
+        gpx = gpxpy.parse(f)
 
-predictor = UnifiedEconomyPredictor()
+    coordinates = []
+    for track in gpx.tracks:
+        for segment in track.segments:
+            for point in segment.points:
+                coordinates.append((point.latitude, point.longitude))
+    return coordinates
 
+def read_levels_from_matrix(levels_file):
+    """Read driving economy levels from CSV file"""
+    levels = []
+    with open(levels_file, 'r') as f:
+        for line in f:
+            parts = line.strip().split(',')
+            if len(parts) < 2:
+                continue
+            try:
+                level = int(parts[-1])
+                speeds = parts[:-1]
+                valid_count = sum(1 for h in speeds if h.strip() != "0.0")
+                levels.extend([level] * valid_count)
+            except ValueError:
+                print(f"Warning: Skipping malformed line: {line}")
+    return levels
 
+def add_legend(m):
+    """Add legend to the map"""
+    legend_html = """
+     <div style='position: fixed; 
+                 bottom: 50px; left: 50px; width: 180px; height: 220px; 
+                 background-color: white; border:2px solid grey; z-index:9999; font-size:14px;
+                 padding: 10px;'>
+     <b>Legenda stopenj:</b><br>
+     <i style='background: blue; width: 10px; height: 10px; display: inline-block;'></i> 0 – Mirovanje<br>
+     <i style='background: lightgreen; width: 10px; height: 10px; display: inline-block;'></i> 1 - Zelo ekonomično<br>
+     <i style='background: green; width: 10px; height: 10px; display: inline-block;'></i> 2 - Ekonomično<br>
+     <i style='background: darkorange; width: 10px; height: 10px; display: inline-block;'></i> 3 - Zmerno ekonomično<br>
+     <i style='background: red; width: 10px; height: 10px; display: inline-block;'></i> 4 - Neekonomično<br>
+     <i style='background: darkred; width: 10px; height: 10px; display: inline-block;'></i> 5 - Zelo neekonomično<br> 
+     </div>
+    """
+    m.get_root().html.add_child(folium.Element(legend_html))
+
+def draw_route_on_map(gpx_path, levels_path):
+    """Draw route on map with colored segments based on driving economy"""
+    coordinates = read_coordinates(gpx_path)
+    levels = read_levels_from_matrix(levels_path)
+
+    if len(coordinates) < 2:
+        print("Not enough coordinates to draw route.")
+        return None
+
+    if len(coordinates) - 1 > len(levels):
+        print(f"Warning: More coordinates than levels. Trimming {len(coordinates) - 1 - len(levels)} excess points.")
+        coordinates = coordinates[:len(levels) + 1]
+    elif len(coordinates) - 1 < len(levels):
+        print(f"Warning: More levels than coordinates. Trimming {len(levels) - (len(coordinates) - 1)} excess levels.")
+        levels = levels[:len(coordinates) - 1]
+
+    colors = {
+        0: 'blue',
+        1: 'lightgreen',
+        2: 'green',
+        3: 'darkorange',
+        4: 'red',
+        5: 'darkred'
+    }
+
+    map_center = coordinates[0]
+    tileset = "CartoDB positron"
+    m = folium.Map(location=map_center, zoom_start=14, tiles=tileset)
+
+    for i in range(len(levels)):
+        segment = [coordinates[i], coordinates[i + 1]]
+        level = levels[i]
+        color = colors.get(level, 'gray')
+        PolyLine(segment, color=color, weight=5, opacity=0.8).add_to(m)
+
+    add_legend(m)
+
+    base_name = os.path.splitext(os.path.basename(gpx_path))[0]
+    output_file = f"{base_name}_map.html"
+    m.save(output_file)
+
+    print(f"Map saved as '{output_file}'")
+    return output_file
+
+# ==================== GUI FUNCTIONS ====================
 def load_speed_model():
     filename = filedialog.askopenfilename(
         title="Izberi model za hitrost",
         filetypes=(("PyTorch Model", "*.pt"), ("All files", "*.*"))
     )
-
     if filename:
         if predictor.load_speed_model(filename):
-            speed_model_label.config(text=f"Model za hitrost: {os.path.basename(filename)}", fg="green")
-            status_label.config(text="Model za hitrost uspešno naložen")
+            speed_model_label.config(
+                text=f"✓ Model za hitrost: {os.path.basename(filename)}",
+                fg=colors['success']
+            )
+            update_status_with_color("Model za hitrost uspešno naložen", 'success')
         else:
-            messagebox.showerror("Napaka", "Napaka pri nalaganju modela za hitrost")
-
+            speed_model_label.config(
+                text=f"✗ Model za hitrost: napaka pri nalaganju",
+                fg=colors['danger']
+            )
+            update_status_with_color("Napaka pri nalaganju modela za hitrost", 'error')
 
 def load_acceleration_model():
     filename = filedialog.askopenfilename(
         title="Izberi model za pospešek",
         filetypes=(("PyTorch Model", "*.pt"), ("All files", "*.*"))
     )
-
     if filename:
         if predictor.load_acceleration_model(filename):
-            accel_model_label.config(text=f"Model za pospešek: {os.path.basename(filename)}", fg="green")
-            status_label.config(text="Model za pospešek uspešno naložen")
+            accel_model_label.config(
+                text=f"✓ Model za pospešek: {os.path.basename(filename)}",
+                fg=colors['success']
+            )
+            update_status_with_color("Model za pospešek uspešno naložen", 'success')
         else:
-            messagebox.showerror("Napaka", "Napaka pri nalaganju modela za pospešek")
-
+            accel_model_label.config(
+                text=f"✗ Model za pospešek: napaka pri nalaganju",
+                fg=colors['danger']
+            )
+            update_status_with_color("Napaka pri nalaganju modela za pospešek", 'error')
 
 def predict_manual():
     try:
@@ -302,10 +392,11 @@ def predict_manual():
             raise ValueError("Ni bilo mogoče narediti nobene napovedi")
 
         display_results(results)
+        update_status_with_color("Napoved uspešno generirana", 'success')
 
     except Exception as e:
         messagebox.showerror("Napaka", f"Napaka pri napovedovanju: {e}")
-
+        update_status_with_color(f"Napaka pri napovedovanju: {e}", 'error')
 
 def generate_output_filename(input_filename):
     base_name = os.path.basename(input_filename)
@@ -317,7 +408,6 @@ def generate_output_filename(input_filename):
 
     input_dir = os.path.dirname(input_filename)
     return os.path.join(input_dir, output_name)
-
 
 def predict_csv():
     if predictor.speed_model is None and predictor.acceleration_model is None:
@@ -362,7 +452,7 @@ def predict_csv():
                 writer = csv.writer(out_f)
 
                 out_header = [f'speed_{i + 1}' for i in range(20)]
-                out_header.append('predicted_label')  # dodaj label na konec
+                out_header.append('predicted_label')
                 writer.writerow(out_header)
 
                 for row_idx, row in enumerate(reader):
@@ -392,7 +482,6 @@ def predict_csv():
                         predicted_label = ""
                         if 'combined' in results:
                             predicted_label = results['combined']['prediction']
-                            #za razlike med modeli
                             if 'speed' in results and 'acceleration' in results:
                                 speed_pred = results['speed']['prediction']
                                 accel_pred = results['acceleration']['prediction']
@@ -420,7 +509,6 @@ def predict_csv():
                         continue
 
         display_csv_analysis(processed_count, error_count, model_differences)
-
         update_stats_label(processed_count, error_count, model_differences)
 
         message = f"Obdelanih {processed_count} vrstic"
@@ -429,40 +517,41 @@ def predict_csv():
         message += f"\nRezultati shranjeni: {output_filename}"
 
         messagebox.showinfo("Uspeh", message)
-        status_label.config(text=f"CSV napoved končana: {processed_count} vrstic obdelanih, {error_count} napak")
+        update_status_with_color(f"CSV napoved končana: {processed_count} vrstic obdelanih, {error_count} napak", 'success')
 
     except Exception as e:
         messagebox.showerror("Napaka", f"Napaka pri obdelavi CSV: {e}")
-
+        update_status_with_color(f"Napaka pri obdelavi CSV: {e}", 'error')
 
 def draw_map():
     try:
-        if os.path.exists("izrisZemljevidaPoStopnjah.py"):
-            status_label.config(text="Zaganjam izris zemljevida...")
+        gpx_file = filedialog.askopenfilename(
+            title="Izberi GPX datoteko",
+            filetypes=(("GPX files", "*.gpx"), ("All files", "*.*"))
+        )
+        if not gpx_file:
+            return
 
-            process = subprocess.Popen([sys.executable, "izrisZemljevidaPoStopnjah.py"],
-                                       stdout=subprocess.PIPE,
-                                       stderr=subprocess.PIPE)
+        levels_file = filedialog.askopenfilename(
+            title="Izberi datoteko s stopnjami",
+            filetypes=(("CSV files", "*.csv"), ("Text files", "*.txt"), ("All files", "*.*"))
+        )
+        if not levels_file:
+            return
 
-            stdout, stderr = process.communicate()
+        update_status_with_color("Ustvarjam zemljevid...", 'info')
+        window.update()
 
-            if process.returncode == 0:
-                status_label.config(text="Zemljevid uspešno izrisan")
-                messagebox.showinfo("Uspeh", "Zemljevid je bil uspešno izrisan!")
-            else:
-                error_msg = stderr.decode('utf-8') if stderr else "Neznana napaka"
-                status_label.config(text="Napaka pri izrisu zemljevida")
-                messagebox.showerror("Napaka", f"Napaka pri izrisu zemljevida:\n{error_msg}")
-
+        output_file = draw_route_on_map(gpx_file, levels_file)
+        if output_file:
+            webbrowser.open('file://' + os.path.abspath(output_file))
+            update_status_with_color("Zemljevid uspešno izrisan in odprt v brskalniku", 'success')
         else:
-            messagebox.showerror("Napaka", "Datoteka 'izrisZemljevidaPoStopnjah.py' ni bila najdena v trenutni mapi!")
+            update_status_with_color("Napaka pri ustvarjanju zemljevida", 'error')
 
     except Exception as e:
-        status_label.config(text="Napaka pri zaganjanju zemljevida")
-        messagebox.showerror("Napaka", f"Napaka pri zaganjanju skripte za zemljevid:\n{str(e)}")
-
-
-
+        messagebox.showerror("Napaka", f"Napaka pri izrisu zemljevida: {e}")
+        update_status_with_color(f"Napaka pri izrisu zemljevida: {e}", 'error')
 
 def update_stats_label(processed_count, error_count, model_differences):
     if processed_count == 0:
@@ -480,7 +569,6 @@ def update_stats_label(processed_count, error_count, model_differences):
             stats_text += "ℹ️ Uporabljen samo en model"
 
     stats_label.config(text=stats_text)
-
 
 def display_csv_analysis(processed_count, error_count, model_differences):
     result_text = f"📊 ANALIZA CSV OBDELAVE:\n\n"
@@ -521,7 +609,6 @@ def display_csv_analysis(processed_count, error_count, model_differences):
     result_display.insert('1.0', result_text)
     result_display.config(state='disabled')
 
-
 def display_results(results):
     result_text = ""
 
@@ -555,14 +642,13 @@ def display_results(results):
     result_display.insert('1.0', result_text)
     result_display.config(state='disabled')
 
-
 def clear_inputs():
     speed_input.delete('1.0', tk.END)
     accel_input.delete('1.0', tk.END)
     result_display.config(state='normal')
     result_display.delete('1.0', tk.END)
     result_display.config(state='disabled')
-
+    update_status_with_color("Vnosi počiščeni", 'info')
 
 def test_models():
     result_text = "TESTIRANJE MODELOV:\n\n"
@@ -587,13 +673,28 @@ def test_models():
         result_text += f"Test uspešen - dobljeno {len(results)} rezultatov\n"
         for key in results:
             result_text += f"- {key}: napoved {results[key]['prediction']}\n"
+        update_status_with_color("Test modelov uspešen", 'success')
     except Exception as e:
         result_text += f"Test neuspešen: {e}\n"
+        update_status_with_color("Test modelov neuspešen", 'error')
 
     result_display.config(state='normal')
     result_display.delete('1.0', tk.END)
     result_display.insert('1.0', result_text)
     result_display.config(state='disabled')
+
+def update_status_with_color(message, status_type):
+    color_map = {
+        'success': '#27ae60',
+        'warning': '#f39c12',
+        'error': '#e74c3c',
+        'info': '#3498db'
+    }
+    status_label.config(
+        text=f"{'✓' if status_type == 'success' else '⚠' if status_type == 'warning' else '✗' if status_type == 'error' else 'ℹ'} {message}",
+        bg=colors['primary'],
+        fg='white'
+    )
 
 def exit_application():
     if messagebox.askyesno("Izhod", "Ali si prepričan, da se želiš odjaviti?"):
@@ -601,90 +702,273 @@ def exit_application():
         window.destroy()
 
 
+# ==================== MAIN GUI SETUP ====================
+predictor = UnifiedEconomyPredictor()
+
 window = tk.Tk()
-window.title("Združen model za ekonomičnost vožnje - Popravljena verzija")
-window.geometry("1200x900")
+window.title("🚗 Ekonomičnost Vožnje - AI Analiza")
+window.geometry("1400x1000")
+window.minsize(1200, 800)
 
-notebook = ttk.Notebook(window)
-notebook.pack(fill="both", expand=True, padx=10, pady=10)
+colors = {
+    'primary': '#2c3e50',
+    'secondary': '#3498db',
+    'success': '#27ae60',
+    'warning': '#f39c12',
+    'danger': '#e74c3c',
+    'light': '#ecf0f1',
+    'dark': '#34495e',
+    'white': '#ffffff',
+    'accent': '#9b59b6'
+}
 
-model_tab = ttk.Frame(notebook)
-notebook.add(model_tab, text="Modeli")
+style = ttk.Style()
+style.theme_use('clam')
 
-predict_tab = ttk.Frame(notebook)
-notebook.add(predict_tab, text="Napovedi")
+style.configure("Modern.TNotebook", 
+               background=colors['light'],
+               borderwidth=0,
+               tabmargins=[5, 5, 5, 0])
 
-csv_tab = ttk.Frame(notebook)
-notebook.add(csv_tab, text="CSV Obdelava")
+style.configure("Modern.TNotebook.Tab", 
+               padding=[25, 15],
+               font=("Segoe UI", 12, "bold"),
+               background=colors['primary'],
+               foreground='white',
+               borderwidth=1,
+               focuscolor='none')
 
-model_frame = ttk.LabelFrame(model_tab, text="Nalaganje modelov")
-model_frame.pack(fill="both", expand=True, padx=10, pady=10)
+style.map("Modern.TNotebook.Tab",
+         background=[('selected', colors['secondary']),
+                    ('active', colors['accent'])],
+         foreground=[('selected', 'white'),
+                    ('active', 'white')])
 
-ttk.Button(model_frame, text="Naloži model za hitrost", command=load_speed_model).pack(pady=10)
-speed_model_label = tk.Label(model_frame, text="Model za hitrost: ni naložen", fg="red")
+style.configure("Modern.TFrame", 
+               background=colors['light'],
+               relief='flat',
+               borderwidth=1)
+
+style.configure("Modern.TLabelframe", 
+               background=colors['light'],
+               borderwidth=2,
+               relief='solid',
+               bordercolor=colors['primary'])
+
+style.configure("Modern.TLabelframe.Label", 
+               background=colors['light'],
+               foreground=colors['primary'],
+               font=("Segoe UI", 14, "bold"))
+
+style.configure("Primary.TButton",
+               font=("Segoe UI", 11, "bold"),
+               padding=[20, 12],
+               background=colors['primary'],
+               foreground='white',
+               borderwidth=0,
+               focuscolor='none')
+
+style.map("Primary.TButton",
+         background=[('active', colors['secondary']),
+                    ('pressed', colors['dark'])])
+
+style.configure("Success.TButton",
+               font=("Segoe UI", 11, "bold"),
+               padding=[20, 12],
+               background=colors['success'],
+               foreground='white',
+               borderwidth=0,
+               focuscolor='none')
+
+style.map("Success.TButton",
+         background=[('active', '#2ecc71'),
+                    ('pressed', '#229954')])
+
+style.configure("Warning.TButton",
+               font=("Segoe UI", 11, "bold"),
+               padding=[20, 12],
+               background=colors['warning'],
+               foreground='white',
+               borderwidth=0,
+               focuscolor='none')
+
+style.map("Warning.TButton",
+         background=[('active', '#e67e22'),
+                    ('pressed', '#d68910')])
+
+style.configure("Danger.TButton",
+               font=("Segoe UI", 11, "bold"),
+               padding=[15, 10],
+               background=colors['danger'],
+               foreground='white',
+               borderwidth=0,
+               focuscolor='none')
+
+style.map("Danger.TButton",
+         background=[('active', '#ec7063'),
+                    ('pressed', '#c0392b')])
+
+# Create notebook (tabs)
+notebook = ttk.Notebook(window, style='Modern.TNotebook')
+notebook.pack(fill="both", expand=True, padx=15, pady=15)
+
+# ==================== MODEL TAB ====================
+model_tab = ttk.Frame(notebook, style='Modern.TFrame')
+notebook.add(model_tab, text="📊 Upravljanje Modelov")
+
+model_frame = ttk.LabelFrame(model_tab, text="🤖 Nalaganje AI Modelov", style="Modern.TLabelframe")
+model_frame.pack(fill="both", expand=True, padx=15, pady=15)
+
+# Speed model section
+speed_frame = tk.Frame(model_frame, bg=colors['light'])
+speed_frame.pack(fill="x", pady=10, padx=10)
+
+ttk.Button(speed_frame, text="📈 Naloži Model za Hitrost", 
+          command=load_speed_model, style="Primary.TButton").pack(pady=10)
+speed_model_label = tk.Label(speed_frame, text="Model za hitrost: ni naložen", 
+                            fg=colors['danger'], bg=colors['light'],
+                            font=("Segoe UI", 11, "bold"))
 speed_model_label.pack(pady=5)
 
-ttk.Button(model_frame, text="Naloži model za pospešek", command=load_acceleration_model).pack(pady=10)
-accel_model_label = tk.Label(model_frame, text="Model za pospešek: ni naložen", fg="red")
+# Acceleration model section
+accel_frame = tk.Frame(model_frame, bg=colors['light'])
+accel_frame.pack(fill="x", pady=10, padx=10)
+
+ttk.Button(accel_frame, text="⚡ Naloži Model za Pospešek", 
+          command=load_acceleration_model, style="Primary.TButton").pack(pady=10)
+accel_model_label = tk.Label(accel_frame, text="Model za pospešek: ni naložen", 
+                            fg=colors['danger'], bg=colors['light'],
+                            font=("Segoe UI", 11, "bold"))
 accel_model_label.pack(pady=5)
 
-ttk.Button(model_frame, text="Testiraj modele", command=test_models).pack(pady=10)
+# Test button
+test_frame = tk.Frame(model_frame, bg=colors['light'])
+test_frame.pack(fill="x", pady=20, padx=10)
+ttk.Button(test_frame, text="🔧 Testiraj Modele", 
+          command=test_models, style="Warning.TButton").pack(pady=10)
 
-input_frame = ttk.LabelFrame(predict_tab, text="Vhodni podatki")
-input_frame.pack(fill="both", expand=True, padx=10, pady=10)
+# ==================== PREDICTION TAB ====================
+predict_tab = ttk.Frame(notebook, style='Modern.TFrame')
+notebook.add(predict_tab, text="🎯 Napovedi")
 
-tk.Label(input_frame, text="Hitrost (20 vrednosti, ločenih s presledki ali vejicami):").pack(anchor="w", padx=5, pady=5)
-speed_input = tk.Text(input_frame, height=3, width=80)
-speed_input.pack(fill="x", padx=5, pady=5)
+input_frame = ttk.LabelFrame(predict_tab, text="📝 Vhodni Podatki", style="Modern.TLabelframe")
+input_frame.pack(fill="both", expand=True, padx=15, pady=15)
 
-tk.Label(input_frame, text="Pospešek (20 vrednosti, ločenih s presledki ali vejicami):").pack(anchor="w", padx=5,
-                                                                                              pady=5)
-accel_input = tk.Text(input_frame, height=3, width=80)
-accel_input.pack(fill="x", padx=5, pady=5)
+# Speed input
+speed_label = tk.Label(input_frame, 
+                      text="🚗 Hitrost (20 vrednosti, ločenih s presledki ali vejicami):",
+                      bg=colors['light'], fg=colors['primary'],
+                      font=("Segoe UI", 12, "bold"))
+speed_label.pack(anchor="w", padx=10, pady=(10, 5))
 
-button_frame = ttk.Frame(input_frame)
-button_frame.pack(fill="x", padx=5, pady=10)
+speed_input = tk.Text(input_frame, height=3, width=80,
+                     font=("Consolas", 11),
+                     bg='white', fg=colors['dark'],
+                     borderwidth=2, relief='solid',
+                     highlightthickness=1, highlightcolor=colors['secondary'],
+                     highlightbackground="#d1d5db")
+speed_input.pack(fill="x", padx=10, pady=5)
 
-ttk.Button(button_frame, text="Napovej", command=predict_manual).pack(side="left", padx=5)
-ttk.Button(button_frame, text="Počisti", command=clear_inputs).pack(side="left", padx=5)
+# Acceleration input
+accel_label = tk.Label(input_frame, 
+                      text="⚡ Pospešek (20 vrednosti, ločenih s presledki ali vejicami):",
+                      bg=colors['light'], fg=colors['primary'],
+                      font=("Segoe UI", 12, "bold"))
+accel_label.pack(anchor="w", padx=10, pady=(15, 5))
 
-result_frame = ttk.LabelFrame(predict_tab, text="Rezultati")
-result_frame.pack(fill="both", expand=True, padx=10, pady=10)
+accel_input = tk.Text(input_frame, height=3, width=80,
+                     font=("Consolas", 11),
+                     bg='white', fg=colors['dark'],
+                     borderwidth=2, relief='solid',
+                     highlightthickness=1, highlightcolor=colors['secondary'],
+                     highlightbackground="#d1d5db")
+accel_input.pack(fill="x", padx=10, pady=5)
 
-result_display = tk.Text(result_frame, height=15, width=80, state='disabled')
-result_display.pack(fill="both", expand=True, padx=5, pady=5)
+# Button frame
+button_frame = tk.Frame(input_frame, bg=colors['light'])
+button_frame.pack(fill="x", padx=10, pady=15)
 
-csv_frame = ttk.LabelFrame(csv_tab, text="CSV obdelava")
-csv_frame.pack(fill="both", expand=True, padx=10, pady=10)
+ttk.Button(button_frame, text="🎯 Napovej", 
+          command=predict_manual, style="Success.TButton").pack(side="left", padx=10)
+ttk.Button(button_frame, text="🗑️ Počisti", 
+          command=clear_inputs, style="Warning.TButton").pack(side="left", padx=10)
 
-csv_info = tk.Label(csv_frame,
-                    text="Format CSV datoteke:\n" +
-                         "- Če imaš oba modela: prvih 20 stolpcev = hitrost, naslednjih 20 = pospešek\n" +
-                         "- Če imaš samo model za hitrost: prvih 20 stolpcev = hitrost\n" +
-                         "- Če imaš samo model za pospešek: prvih 20 stolpcev = pospešek\n" +
-                         "- Ostali stolpci bodo prepisani v rezultat\n" +
-                         "- Output datoteka bo poimenovana: ime_output.csv",
-                    justify="left")
-csv_info.pack(anchor="w", padx=10, pady=10)
+# Results frame
+result_frame = ttk.LabelFrame(predict_tab, text="📊 Rezultati Analize", style="Modern.TLabelframe")
+result_frame.pack(fill="both", expand=True, padx=15, pady=15)
 
-ttk.Button(csv_frame, text="Obdelaj CSV datoteko", command=predict_csv).pack(pady=20)
-ttk.Button(csv_frame, text="Izris zemljevida", command=draw_map).pack(pady=20)
+result_display = tk.Text(result_frame, height=15, width=80, state='disabled',
+                        font=("Segoe UI", 11),
+                        bg='white', fg=colors['dark'],
+                        borderwidth=2, relief='solid',
+                        highlightthickness=0)
+result_scroll = ttk.Scrollbar(result_frame, orient="vertical", command=result_display.yview)
+result_display.configure(yscrollcommand=result_scroll.set)
+result_scroll.pack(side="right", fill="y")
+result_display.pack(fill="both", expand=True, padx=10, pady=10)
 
-stats_frame = ttk.LabelFrame(csv_frame, text="Statistika zadnje obdelave")
+# ==================== CSV TAB ====================
+csv_tab = ttk.Frame(notebook, style='Modern.TFrame')
+notebook.add(csv_tab, text="📄 CSV Obdelava")
+
+csv_frame = ttk.LabelFrame(csv_tab, text="📈 Batch Analiza", style="Modern.TLabelframe")
+csv_frame.pack(fill="both", expand=True, padx=15, pady=15)
+
+# Info panel
+info_frame = tk.Frame(csv_frame, bg='white', relief='solid', borderwidth=2)
+info_frame.pack(fill="x", padx=10, pady=10)
+
+csv_info = tk.Label(info_frame,
+                   text="📋 Format CSV datoteke:\n" +
+                        "• Če imaš oba modela: prvih 20 stolpcev = hitrost, naslednjih 20 = pospešek\n" +
+                        "• Če imaš samo model za hitrost: prvih 20 stolpcev = hitrost\n" +
+                        "• Če imaš samo model za pospešek: prvih 20 stolpcev = pospešek\n" +
+                        "• Output datoteka: ime_output.csv",
+                   justify="left", bg='white', fg=colors['dark'],
+                   font=("Segoe UI", 11), padx=15, pady=15)
+csv_info.pack(anchor="w")
+
+# CSV buttons
+csv_btn_frame = tk.Frame(csv_frame, bg=colors['light'])
+csv_btn_frame.pack(pady=20)
+
+ttk.Button(csv_btn_frame, text="📊 Obdelaj CSV Datoteko", 
+          command=predict_csv, style="Primary.TButton").pack(pady=10)
+ttk.Button(csv_btn_frame, text="🗺️ Izris Zemljevida", 
+          command=draw_map, style="Success.TButton").pack(pady=10)
+
+# Stats frame
+stats_frame = ttk.LabelFrame(csv_frame, text="📈 Statistika Zadnje Obdelave", style="Modern.TLabelframe")
 stats_frame.pack(fill="x", padx=10, pady=10)
 
-global stats_label
 stats_label = tk.Label(stats_frame, text="Še ni bilo obdelave CSV datoteke",
-                       justify="left", anchor="w", bg="white", relief="sunken", padx=10, pady=10)
+                      justify="left", anchor="w", 
+                      bg='white', fg=colors['dark'],
+                      relief="solid", borderwidth=1,
+                      font=("Segoe UI", 11),
+                      padx=15, pady=15)
 stats_label.pack(fill="x", padx=5, pady=5)
 
-# Status bar
-status_label = tk.Label(window, text="Pripravljeno - naloži modele za začetek",
-                        bd=1, relief=tk.SUNKEN, anchor=tk.W)
-status_label.pack(side="bottom", fill="x")
+# ==================== STATUS BAR ====================
+status_frame = tk.Frame(window, bg=colors['primary'], height=40)
+status_frame.pack(side="bottom", fill="x")
+status_frame.pack_propagate(False)
 
-ttk.Button(window, text="Izhod", command=exit_application).pack(side="bottom", pady=5)
+status_label = tk.Label(status_frame, 
+                       text="🚀 Pripravljeno - naloži modele za začetek",
+                       bg=colors['primary'], fg='white',
+                       font=("Segoe UI", 11, "bold"),
+                       anchor=tk.W, padx=15)
+status_label.pack(fill="both", expand=True)
 
+# Exit button
+exit_frame = tk.Frame(window, bg=colors['light'])
+exit_frame.pack(side="bottom", fill="x", pady=5)
+
+ttk.Button(exit_frame, text="🚪 Izhod", 
+          command=exit_application, style="Danger.TButton").pack(pady=10)
+
+# Final setup
 window.protocol("WM_DELETE_WINDOW", exit_application)
 
 if __name__ == "__main__":
