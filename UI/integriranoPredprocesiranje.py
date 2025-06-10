@@ -10,7 +10,6 @@ class HybridPreprocessor:
         self.padding_value = padding_value
     
     def calculate_acceleration(self, speeds: List[float], time_interval: float = 1.0) -> List[float]:
-        """Izračuna pospeške iz hitrosti"""
         if len(speeds) < 2:
             return [0.0] * len(speeds)
         
@@ -22,38 +21,31 @@ class HybridPreprocessor:
             acceleration = (speed_curr_ms - speed_prev_ms) / time_interval
             accelerations.append(acceleration)
         
-        return [0.0] + accelerations  # Prvi pospešek je 0
+        return [0.0] + accelerations
     
     def process_chunk(self, speeds: List[float], zone: int) -> List[List[float]]:
-        """Obdelava posameznega kosa podatkov (hitrosti + pospeški)"""
-        # Izračunaj pospeške
         accelerations = self.calculate_acceleration(speeds)
-        
-        # Ustvari kombinirane vrstice (prvih 20 hitrost, naslednjih 20 pospeškov)
+
         combined_rows = []
         for i in range(0, len(speeds), self.sequence_length):
             speed_chunk = speeds[i:i+self.sequence_length]
             accel_chunk = accelerations[i:i+self.sequence_length]
-            
-            # Dodaj padding če je potrebno
+
             while len(speed_chunk) < self.sequence_length:
                 speed_chunk.append(self.padding_value)
             while len(accel_chunk) < self.sequence_length:
                 accel_chunk.append(self.padding_value)
-            
-            # Kombiniraj hitrosti in pospeške
+
             combined_row = speed_chunk + accel_chunk + [zone]
             combined_rows.append(combined_row)
         
         return combined_rows
     
     def process_file(self, input_filename: str):
-        """Glavna funkcija za procesiranje podatkov"""
         with open(input_filename, 'r') as file:
             reader = csv.DictReader(file)
             rows = list(reader)
 
-        # Preberemo podatke
         data = []
         for row in rows:
             try:
@@ -69,7 +61,6 @@ class HybridPreprocessor:
             print("Napaka: Ni podatkov za obdelavo.")
             return
 
-        # Razvrsti po času
         data.sort(key=lambda x: x[0])
 
         output_rows = []
@@ -83,16 +74,13 @@ class HybridPreprocessor:
                 current_zone = zone
             current_speeds.append(speed)
 
-        # Obdelaj še zadnjo cono
         if current_speeds:
             output_rows.extend(self.process_chunk(current_speeds, current_zone))
 
-        # Ustvari header (prvih 20 hitrosti, naslednjih 20 pospeškov)
         header = [f"speed_{i+1}" for i in range(self.sequence_length)] + \
                  [f"acc_{i+1}" for i in range(self.sequence_length)] + \
                  ["zone"]
 
-        # Shrani procesirane podatke z oznakami
         base, ext = os.path.splitext(input_filename)
         output_filename = f"{base}_hybrid_predprocesirano{ext}"
 
@@ -103,7 +91,6 @@ class HybridPreprocessor:
 
         print(f"Procesirana datoteka shranjena: {output_filename}")
 
-        # Shrani datoteko za napovedovanje (brez oznak)
         predict_filename = f"{base}_hybrid_predict{ext}"
         with open(predict_filename, 'w', newline='') as predict_file:
             writer = csv.writer(predict_file)
