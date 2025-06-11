@@ -16,8 +16,8 @@ class HybridPreprocessor:
         accelerations = []
         
         for i in range(1, len(speeds)):
-            speed_curr_ms = speeds[i] * (1000/3600)  # km/h to m/s
-            speed_prev_ms = speeds[i-1] * (1000/3600)  # km/h to m/s
+            speed_curr_ms = speeds[i] * (1000/3600)
+            speed_prev_ms = speeds[i-1] * (1000/3600)
             acceleration = (speed_curr_ms - speed_prev_ms) / time_interval
             accelerations.append(acceleration)
         
@@ -94,9 +94,9 @@ class HybridPreprocessor:
         predict_filename = f"{base}_hybrid_predict{ext}"
         with open(predict_filename, 'w', newline='') as predict_file:
             writer = csv.writer(predict_file)
-            writer.writerow(header[:-1])  # Brez zone
+            writer.writerow(header[:-1])
             for row in output_rows:
-                writer.writerow(row[:-1])  # Brez zone
+                writer.writerow(row[:-1])
 
         print(f"Datoteka za napovedovanje shranjena: {predict_filename}")
 
