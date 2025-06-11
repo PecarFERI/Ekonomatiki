@@ -14,7 +14,73 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import random
 from PIL import Image
 import csv
+from typing import List, Tuple
 
+
+class HybridPreprocessor:
+    def __init__(self, sequence_length: int = 20, padding_value: float = 0.0):
+        self.sequence_length = sequence_length
+        self.padding_value = padding_value
+
+    def calculate_acceleration(self, speeds: List[float], time_interval: float = 1.0) -> List[float]:
+        if len(speeds) < 2:
+            return [0.0] * len(speeds)
+
+        accelerations = []
+
+        for i in range(1, len(speeds)):
+            speed_curr_ms = speeds[i] * (1000 / 3600)
+            speed_prev_ms = speeds[i - 1] * (1000 / 3600)
+            acceleration = (speed_curr_ms - speed_prev_ms) / time_interval
+            accelerations.append(acceleration)
+
+        return [0.0] + accelerations
+
+    def process_chunk(self, speeds: List[float], zone: int) -> List[List[float]]:
+        accelerations = self.calculate_acceleration(speeds)
+
+        combined_rows = []
+        for i in range(0, len(speeds), self.sequence_length):
+            speed_chunk = speeds[i:i + self.sequence_length]
+            accel_chunk = accelerations[i:i + self.sequence_length]
+
+            while len(speed_chunk) < self.sequence_length:
+                speed_chunk.append(self.padding_value)
+            while len(accel_chunk) < self.sequence_length:
+                accel_chunk.append(self.padding_value)
+
+            combined_row = speed_chunk + accel_chunk + [zone]
+            combined_rows.append(combined_row)
+
+        return combined_rows
+
+    def process_data(self, data: List[Tuple[int, float, int]]):
+        """Process data directly from memory instead of reading from file"""
+        if not data:
+            print("Napaka: Ni podatkov za obdelavo.")
+            return None, None
+
+        data.sort(key=lambda x: x[0])
+
+        output_rows = []
+        current_zone = data[0][2]
+        current_speeds = []
+
+        for _, speed, zone in data:
+            if zone != current_zone:
+                output_rows.extend(self.process_chunk(current_speeds, current_zone))
+                current_speeds = []
+                current_zone = zone
+            current_speeds.append(speed)
+
+        if current_speeds:
+            output_rows.extend(self.process_chunk(current_speeds, current_zone))
+
+        header = [f"speed_{i + 1}" for i in range(self.sequence_length)] + \
+                 [f"acc_{i + 1}" for i in range(self.sequence_length)] + \
+                 ["zone"]
+
+        return header, output_rows
 
 class GPSMappingApp:
     def __init__(self, root):
@@ -366,9 +432,9 @@ class GPSMappingApp:
 
         difference_amount = 0
 
-        if (len(filtered_speeds) < len(filtered_timestamps)):
+        if len(filtered_speeds) < len(filtered_timestamps):
             difference_amount = len(filtered_timestamps) - len(filtered_speeds)
-        elif (len(filtered_speeds) > len(filtered_timestamps)):
+        elif len(filtered_speeds) > len(filtered_timestamps):
             difference_amount = len(filtered_speeds) - len(filtered_timestamps)
 
         fig, ax = plt.subplots(figsize=(10, 5))
@@ -400,8 +466,6 @@ class GPSMappingApp:
 
         zone_ratings = []
         start_time = filtered_timestamps[0]
-
-        counter_zones = 0
 
         for i in range(1, len(smoothed_speeds)):
             prev_speed = smoothed_speeds[i - 1]
@@ -484,6 +548,7 @@ class GPSMappingApp:
         output_file_path = os.path.join(analysis_dir, output_file_name)
 
         formatted_lines = []
+
         for start_t, end_t, zone in stable_zones:
             start = int(start_t)
             end = int(end_t)
@@ -499,11 +564,12 @@ class GPSMappingApp:
 
         start_time = filtered_timestamps[0]
         seconds = [(ts - start_time).total_seconds() for ts in filtered_timestamps[difference_amount:]]
-        zone_index = 0
 
         with open(output_file_path, "w", newline="") as csvfile:
             csvwriter = csv.writer(csvfile)
             csvwriter.writerow(["second", "speed", "zone"])
+
+            data_for_processing = []
 
             for i, sec in enumerate(seconds):
                 current_zone = 0
@@ -515,7 +581,34 @@ class GPSMappingApp:
                 speed = round(filtered_speeds[i], 0)
                 csvwriter.writerow([int(sec), int(speed), current_zone])
 
-        print(f"CSV written to {output_file_path}")
+                data_for_processing.append((int(sec), float(speed), current_zone))
+
+        print(f"Original CSV written to {output_file_path}")
+
+        preprocessor = HybridPreprocessor(sequence_length=20, padding_value=0.0)
+        header, processed_rows = preprocessor.process_data(data_for_processing)
+
+        if processed_rows is not None:
+            base, ext = os.path.splitext(output_file_path)
+            hybrid_filename = f"{base}_hybrid_predprocesirano{ext}"
+            predict_filename = f"{base}_hybrid_predict{ext}"
+
+            with open(hybrid_filename, 'w', newline='') as outfile:
+                writer = csv.writer(outfile)
+                writer.writerow(header)
+                writer.writerows(processed_rows)
+
+            print(f"Hybrid preprocessed file written to {hybrid_filename}")
+
+            with open(predict_filename, 'w', newline='') as predict_file:
+                writer = csv.writer(predict_file)
+                writer.writerow(header[:-1])
+                for row in processed_rows:
+                    writer.writerow(row[:-1])
+
+            print(f"Prediction file written to {predict_filename}")
+        else:
+            print("Failed to process data for hybrid preprocessing")
 
         total_time_minutes = total_time * 60
         return coordinates, total_distance, average_speed, max_speed, elevation_change, total_time_minutes

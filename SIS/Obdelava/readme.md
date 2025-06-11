@@ -55,6 +55,10 @@ Uporabniški vmesnik je izboljšan z mehkejšimi barvnimi prehodi, svetlejšimi 
 
 Privzeti način aplikacije je svetli način za boljšo vidljivost, skladno s predlogom mentorja.
 
+![Zaslonski posnetek aplikacije v privzetem načinu](program.png)
+
 ### Temni način (dark mode)
 
 Temni način ostaja na voljo za uporabnike, ki raje uporabljajo temnejše barvne sheme.
+
+![Zaslonski posnetek aplikacije v temnem načinu](programdark.png)
