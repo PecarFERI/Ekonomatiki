@@ -567,25 +567,7 @@ class GPSMappingApp:
         seconds = [(ts - start_time).total_seconds() for ts in filtered_timestamps[difference_amount:]]
         zone_index = 0
 
-        with open(output_file_path, "w", newline="") as csvfile:
-            csvwriter = csv.writer(csvfile)
-            csvwriter.writerow(["second", "speed", "zone"])
-
-            data_for_processing = []
-
-            for i, sec in enumerate(seconds):
-                current_zone = 0
-                for start_t, end_t, zone in stable_zones:
-                    if start_t <= sec <= end_t:
-                        current_zone = zone
-                        break
-
-                speed = round(filtered_speeds[i], 0)
-                csvwriter.writerow([int(sec), int(speed), current_zone])
-
-                data_for_processing.append((int(sec), float(speed), current_zone))
-
-        print(f"Original CSV written to {output_file_path}")
+    
 
         preprocessor = HybridPreprocessor(sequence_length=20, padding_value=0.0)
         header, processed_rows = preprocessor.process_data(data_for_processing)
@@ -600,7 +582,17 @@ class GPSMappingApp:
                 writer.writerow(header)
                 writer.writerows(processed_rows)
 
+            print(f"Hybrid preprocessed file written to {hybrid_filename}")
 
+            with open(predict_filename, 'w', newline='') as predict_file:
+                writer = csv.writer(predict_file)
+                writer.writerow(header[:-1])
+                for row in processed_rows:
+                    writer.writerow(row[:-1])
+
+            print(f"Prediction file written to {predict_filename}")
+        else:
+            print("Failed to process data for hybrid preprocessing")
 
         total_time_minutes = total_time * 60
         return coordinates, total_distance, average_speed, max_speed, elevation_change, total_time_minutes
