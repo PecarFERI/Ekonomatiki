@@ -175,6 +175,11 @@ class UnifiedEconomyPredictor:
             'Neekonomično', 'Zelo neekonomično', 'Ekstremno neekonomično'
         ]
 
+    def set_weights(self, speed_weight, accel_weight):
+        self.speed_weight = speed_weight
+        self.accel_weight = accel_weight
+        print(f"Updated weights - Speed: {self.speed_weight}, Acceleration: {self.accel_weight}")
+
     def load_speed_model(self, model_path):
         try:
             self.speed_model = BiLSTMSpeedEconomyModel(
@@ -906,8 +911,7 @@ def display_csv_analysis(processed_count, error_count, model_differences):
     else:
         result_text += "✅ Vsi modeli so se strinjali pri vseh napovedih!\n"
 
-    result_text += f"\n💡 Utež kombinacije: 60% hitrost, 40% pospešek"
-
+    result_text += f"\n💡 Razporeditev uteži modelov - Hitrost: {predictor.speed_weight}, Pospeševanje: {predictor.accel_weight}"
     result_display.config(state='normal')
     result_display.delete('1.0', tk.END)
     result_display.insert('1.0', result_text)
@@ -933,7 +937,8 @@ def display_results(results):
     if 'combined' in results:
         combined_pred = results['combined']['prediction']
         combined_conf = results['combined']['confidence']
-        result_text += f"🎯 SKUPNA OCENA (60% hitrost, 40% pospešek):\n"
+        weights = results['combined']['weights']
+        result_text += f"🎯 SKUPNA OCENA ({weights['speed']*100:.0f}% hitrost, {weights['acceleration']*100:.0f}% pospešek):\n"        
         result_text += f"Napoved: Stopnja {combined_pred} - {predictor.class_names[combined_pred]}\n"
         result_text += f"Zaupanje: {combined_conf:.1%}\n\n"
 
@@ -1155,6 +1160,59 @@ move_model_label = tk.Label(move_frame, text="Model za smer: ni naložen",
                             fg=colors['danger'], bg=colors['light'],
                             font=("Segoe UI", 11, "bold"))
 move_model_label.pack(pady=5)
+
+weight_frame = tk.Frame(model_frame, bg=colors['light'])
+weight_frame.pack(fill="x", pady=15, padx=10)
+
+weight_label = tk.Label(weight_frame, 
+                       text="⚖️ Uteži Modelov (Skupaj mora biti 1.0):",
+                       bg=colors['light'], fg=colors['primary'],
+                       font=("Segoe UI", 11, "bold"))
+weight_label.pack(pady=(0, 10))
+
+
+weight_control_frame = tk.Frame(weight_frame, bg=colors['light'])
+weight_control_frame.pack()
+
+
+speed_weight_frame = tk.Frame(weight_control_frame, bg=colors['light'])
+speed_weight_frame.pack(side="left", padx=10)
+
+tk.Label(speed_weight_frame, text="Hitrost:", bg=colors['light']).pack(side="left")
+speed_weight_var = tk.DoubleVar(value=0.6)
+speed_weight_spin = tk.Spinbox(speed_weight_frame, 
+                              from_=0.0, to=1.0, increment=0.05,
+                              textvariable=speed_weight_var,
+                              width=5)
+speed_weight_spin.pack(side="left", padx=5)
+
+accel_weight_frame = tk.Frame(weight_control_frame, bg=colors['light'])
+accel_weight_frame.pack(side="left", padx=10)
+
+tk.Label(accel_weight_frame, text="Pospešek:", bg=colors['light']).pack(side="left")
+accel_weight_var = tk.DoubleVar(value=0.4)
+accel_weight_spin = tk.Spinbox(accel_weight_frame, 
+                              from_=0.0, to=1.0, increment=0.05,
+                              textvariable=accel_weight_var,
+                              width=5)
+accel_weight_spin.pack(side="left", padx=5)
+
+def update_weights():
+    speed_weight = speed_weight_var.get()
+    accel_weight = accel_weight_var.get()
+    
+    if abs((speed_weight + accel_weight) - 1.0) > 0.001:
+        messagebox.showerror("Napaka", "Vsota uteži mora biti 1.0!")
+        return
+    
+    predictor.set_weights(speed_weight, accel_weight)
+    update_status_with_color(f"Uteži posodobljene: Hitrost={speed_weight:.2f}, Pospešek={accel_weight:.2f}", 'success')
+
+update_weight_btn = ttk.Button(weight_frame, 
+                             text="Posodobi Uteži",
+                             command=update_weights,
+                             style="Primary.TButton")
+update_weight_btn.pack(pady=10)
 
 # Test button
 test_frame = tk.Frame(model_frame, bg=colors['light'])
