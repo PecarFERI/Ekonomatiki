@@ -15,8 +15,10 @@ import webbrowser
 import gpxpy
 import folium
 from folium import PolyLine
+import json
 
-# ==================== MODEL DEFINITIONS ====================
+
+#==================definicije modelov
 class BiLSTMSpeedEconomyModel(nn.Module):
     def __init__(self, input_size=1, hidden_size=64, num_layers=2, num_classes=6):
         super(BiLSTMSpeedEconomyModel, self).__init__()
@@ -106,7 +108,7 @@ class AccelerationEconomyModel(nn.Module):
         out = self.classifier(context_vector)
         return out
 
-# ==================== PREDICTOR CLASS ====================
+#==============skupni prediction
 class UnifiedEconomyPredictor:
     def __init__(self):
         self.speed_model = None
@@ -231,12 +233,11 @@ class UnifiedEconomyPredictor:
 
         return results
 
-# ==================== MAP DRAWING FUNCTIONS ====================
+
+# ===========izris zemljevida
 def read_coordinates(gpx_file):
-    """Read coordinates from GPX file"""
     with open(gpx_file, 'r') as f:
         gpx = gpxpy.parse(f)
-
     coordinates = []
     for track in gpx.tracks:
         for segment in track.segments:
@@ -244,8 +245,8 @@ def read_coordinates(gpx_file):
                 coordinates.append((point.latitude, point.longitude))
     return coordinates
 
+
 def read_levels_from_matrix(levels_file):
-    """Read driving economy levels from CSV file"""
     levels = []
     with open(levels_file, 'r') as f:
         for line in f:
@@ -261,8 +262,8 @@ def read_levels_from_matrix(levels_file):
                 print(f"Warning: Skipping malformed line: {line}")
     return levels
 
+
 def add_legend(m):
-    """Add legend to the map"""
     legend_html = """
      <div style='position: fixed; 
                  bottom: 50px; left: 50px; width: 180px; height: 220px; 
@@ -279,8 +280,155 @@ def add_legend(m):
     """
     m.get_root().html.add_child(folium.Element(legend_html))
 
-def draw_route_on_map(gpx_path, levels_path):
-    """Draw route on map with colored segments based on driving economy"""
+
+def generate_animation_js(coordinates, levels):
+    if len(levels) != len(coordinates) - 1:
+        min_len = min(len(levels), len(coordinates) - 1)
+        coordinates = coordinates[:min_len + 1]
+        levels = levels[:min_len]
+
+    colors = {
+        0: 'blue',
+        1: 'lightgreen',
+        2: 'green',
+        3: 'darkorange',
+        4: 'red',
+        5: 'darkred'
+    }
+
+    js_code = f"""
+    <script>
+        const ANIMATION_DURATION = 30000;
+        const POINTS_PER_FRAME = 1;  //ena na enkrat
+        const INITIAL_DELAY = 1000;
+        const CAMERA_FOLLOW_ZOOM = 14;
+
+        let coordinates = {json.dumps(coordinates)};
+        let levels = {json.dumps(levels)};
+        let colors = {json.dumps(colors)};
+
+        let map;
+        let currentIndex = 1;
+        let animationId = null;
+        let isAnimating = false;
+        let polylines = [];
+
+        function initializeAnimation() {{
+            for (let key in window) {{
+                if (key.startsWith('map_') && window[key] && typeof window[key].setView === 'function') {{
+                    map = window[key];
+                    break;
+                }}
+            }}
+
+            if (!map) {{
+                console.error('Map object not found');
+                return;
+            }}
+
+            createStartButton();
+        }}
+
+        function createStartButton() {{
+            let buttonHtml = `
+                <div id="animationControls" style="position: fixed; top: 20px; right: 20px; z-index: 1000;
+                     background: white; padding: 10px; border-radius: 5px; box-shadow: 0 2px 10px rgba(0,0,0,0.2);">
+                    <button id="startBtn" style="padding: 10px 15px; background: #4CAF50; color: white; 
+                           border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
+                        ▶️ Začni animacijo
+                    </button>
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', buttonHtml);
+            document.getElementById('startBtn').addEventListener('click', function() {{
+                if (!isAnimating) {{
+                    startAnimation();
+                }}
+            }});
+        }}
+
+        function startAnimation() {{
+            if (isAnimating) return;
+            currentIndex = 1;
+            isAnimating = true;
+
+            polylines.forEach(p => map.removeLayer(p));
+            polylines = [];
+
+            map.setView(coordinates[0], CAMERA_FOLLOW_ZOOM);
+
+            document.getElementById('startBtn').textContent = '⏳ Animacija poteka...';
+            document.getElementById('startBtn').style.background = '#FF9800';
+            document.getElementById('startBtn').disabled = true;
+
+            animatePath();
+        }}
+
+        function animatePath() {{
+            if (!isAnimating || currentIndex >= coordinates.length) {{
+                animationComplete();
+                return;
+            }}
+
+            let color = colors[levels[currentIndex - 1]] || 'gray';
+
+            let segment = L.polyline([coordinates[currentIndex - 1], coordinates[currentIndex]], {{
+                color: color,
+                weight: 6,
+                opacity: 0.9,
+                lineCap: 'round',
+                lineJoin: 'round'
+            }}).addTo(map);
+            polylines.push(segment);
+
+            if (currentIndex % 10 === 0) {{
+                map.panTo(coordinates[currentIndex], {{
+                    animate: true,
+                    duration: 0.5,
+                    easeLinearity: 0.25
+                }});
+            }}
+
+            currentIndex++;
+
+            let delay = Math.max(10, ANIMATION_DURATION / coordinates.length);
+            animationId = setTimeout(animatePath, delay);
+        }}
+
+        function animationComplete() {{
+            isAnimating = false;
+            document.getElementById('startBtn').textContent = '🔄 Ponovi animacijo';
+            document.getElementById('startBtn').style.background = '#4CAF50';
+            document.getElementById('startBtn').disabled = false;
+            map.panTo(coordinates[coordinates.length - 1], {{
+                animate: true,
+                duration: 1
+            }});
+        }}
+
+        document.addEventListener('DOMContentLoaded', function() {{
+            setTimeout(initializeAnimation, INITIAL_DELAY);
+        }});
+    </script>
+
+    <style>
+        #animationControls {{
+            font-family: Arial, sans-serif;
+        }}
+        #startBtn {{
+            transition: all 0.3s ease;
+        }}
+        #startBtn:hover {{
+            transform: scale(1.05);
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }}
+    </style>
+    """
+    return js_code
+
+
+
+def draw_route_on_map(gpx_path, levels_path, progressive=True):
     coordinates = read_coordinates(gpx_path)
     levels = read_levels_from_matrix(levels_path)
 
@@ -295,35 +443,77 @@ def draw_route_on_map(gpx_path, levels_path):
         print(f"Warning: More levels than coordinates. Trimming {len(levels) - (len(coordinates) - 1)} excess levels.")
         levels = levels[:len(coordinates) - 1]
 
-    colors = {
-        0: 'blue',
-        1: 'lightgreen',
-        2: 'green',
-        3: 'darkorange',
-        4: 'red',
-        5: 'darkred'
-    }
-
     map_center = coordinates[0]
-    tileset = "CartoDB positron"
-    m = folium.Map(location=map_center, zoom_start=14, tiles=tileset)
-
-    for i in range(len(levels)):
-        segment = [coordinates[i], coordinates[i + 1]]
-        level = levels[i]
-        color = colors.get(level, 'gray')
-        PolyLine(segment, color=color, weight=5, opacity=0.8).add_to(m)
-
-    add_legend(m)
+    m = folium.Map(location=map_center, zoom_start=14, tiles="CartoDB positron")
 
     base_name = os.path.splitext(os.path.basename(gpx_path))[0]
-    output_file = f"{base_name}_map.html"
-    m.save(output_file)
 
+    if progressive:
+        output_file = f"{base_name}_map.html"
+        print("Creating animation map...")
+
+        add_legend(m)
+
+        folium.Marker(
+            coordinates[0],
+            popup="🏁 START",
+            icon=folium.Icon(color='green', icon='play')
+        ).add_to(m)
+
+        folium.Marker(
+            coordinates[-1],
+            popup="🏁 CILJ",
+            icon=folium.Icon(color='red', icon='stop')
+        ).add_to(m)
+
+        map_var_name = m.get_name()
+        print(f"Map variable name: {map_var_name}")
+
+        js_code = generate_animation_js(coordinates, levels)
+        m.get_root().html.add_child(folium.Element(js_code))
+
+    else:
+        output_file = f"{base_name}_static_map.html"
+        colors = {
+            0: 'blue', 1: 'lightgreen', 2: 'green',
+            3: 'darkorange', 4: 'red', 5: 'darkred'
+        }
+
+        folium.Marker(
+            coordinates[0],
+            popup="🏁 START",
+            icon=folium.Icon(color='green', icon='play')
+        ).add_to(m)
+
+        folium.Marker(
+            coordinates[-1],
+            popup="🏁 CILJ",
+            icon=folium.Icon(color='red', icon='stop')
+        ).add_to(m)
+
+        for i in range(len(levels)):
+            segment = [coordinates[i], coordinates[i + 1]]
+            level = levels[i]
+            color = colors.get(level, 'gray')
+            folium.PolyLine(
+                segment,
+                color=color,
+                weight=5,
+                opacity=0.8,
+                popup=f"Segment {i + 1}: Stopnja {level}"
+            ).add_to(m)
+
+        add_legend(m)
+
+    m.save(output_file)
     print(f"Map saved as '{output_file}'")
+    print(f"Skupaj segmentov: {len(levels)}")
+    print(f"Skupaj koordinat: {len(coordinates)}")
+
     return output_file
 
-# ==================== GUI FUNCTIONS ====================
+
+# ===============gui
 def load_speed_model():
     filename = filedialog.askopenfilename(
         title="Izberi model za hitrost",
@@ -542,7 +732,7 @@ def draw_map():
         update_status_with_color("Ustvarjam zemljevid...", 'info')
         window.update()
 
-        output_file = draw_route_on_map(gpx_file, levels_file)
+        output_file = draw_route_on_map(gpx_file, levels_file, progressive=True)
         if output_file:
             webbrowser.open('file://' + os.path.abspath(output_file))
             update_status_with_color("Zemljevid uspešno izrisan in odprt v brskalniku", 'success')
@@ -702,7 +892,7 @@ def exit_application():
         window.destroy()
 
 
-# ==================== MAIN GUI SETUP ====================
+#===============main gui
 predictor = UnifiedEconomyPredictor()
 
 window = tk.Tk()
@@ -808,11 +998,10 @@ style.map("Danger.TButton",
          background=[('active', '#ec7063'),
                     ('pressed', '#c0392b')])
 
-# Create notebook (tabs)
 notebook = ttk.Notebook(window, style='Modern.TNotebook')
 notebook.pack(fill="both", expand=True, padx=15, pady=15)
 
-# ==================== MODEL TAB ====================
+# ============model tab
 model_tab = ttk.Frame(notebook, style='Modern.TFrame')
 notebook.add(model_tab, text="📊 Upravljanje Modelov")
 
@@ -847,7 +1036,7 @@ test_frame.pack(fill="x", pady=20, padx=10)
 ttk.Button(test_frame, text="🔧 Testiraj Modele", 
           command=test_models, style="Warning.TButton").pack(pady=10)
 
-# ==================== PREDICTION TAB ====================
+# =========== prediction tab
 predict_tab = ttk.Frame(notebook, style='Modern.TFrame')
 notebook.add(predict_tab, text="🎯 Napovedi")
 
@@ -884,7 +1073,7 @@ accel_input = tk.Text(input_frame, height=3, width=80,
                      highlightbackground="#d1d5db")
 accel_input.pack(fill="x", padx=10, pady=5)
 
-# Button frame
+#button frame
 button_frame = tk.Frame(input_frame, bg=colors['light'])
 button_frame.pack(fill="x", padx=10, pady=15)
 
@@ -893,7 +1082,7 @@ ttk.Button(button_frame, text="🎯 Napovej",
 ttk.Button(button_frame, text="🗑️ Počisti", 
           command=clear_inputs, style="Warning.TButton").pack(side="left", padx=10)
 
-# Results frame
+#results frame
 result_frame = ttk.LabelFrame(predict_tab, text="📊 Rezultati Analize", style="Modern.TLabelframe")
 result_frame.pack(fill="both", expand=True, padx=15, pady=15)
 
@@ -907,14 +1096,13 @@ result_display.configure(yscrollcommand=result_scroll.set)
 result_scroll.pack(side="right", fill="y")
 result_display.pack(fill="both", expand=True, padx=10, pady=10)
 
-# ==================== CSV TAB ====================
+#=========csv tab
 csv_tab = ttk.Frame(notebook, style='Modern.TFrame')
 notebook.add(csv_tab, text="📄 CSV Obdelava")
 
 csv_frame = ttk.LabelFrame(csv_tab, text="📈 Batch Analiza", style="Modern.TLabelframe")
 csv_frame.pack(fill="both", expand=True, padx=15, pady=15)
 
-# Info panel
 info_frame = tk.Frame(csv_frame, bg='white', relief='solid', borderwidth=2)
 info_frame.pack(fill="x", padx=10, pady=10)
 
@@ -928,7 +1116,7 @@ csv_info = tk.Label(info_frame,
                    font=("Segoe UI", 11), padx=15, pady=15)
 csv_info.pack(anchor="w")
 
-# CSV buttons
+#buttons
 csv_btn_frame = tk.Frame(csv_frame, bg=colors['light'])
 csv_btn_frame.pack(pady=20)
 
@@ -937,7 +1125,7 @@ ttk.Button(csv_btn_frame, text="📊 Obdelaj CSV Datoteko",
 ttk.Button(csv_btn_frame, text="🗺️ Izris Zemljevida", 
           command=draw_map, style="Success.TButton").pack(pady=10)
 
-# Stats frame
+
 stats_frame = ttk.LabelFrame(csv_frame, text="📈 Statistika Zadnje Obdelave", style="Modern.TLabelframe")
 stats_frame.pack(fill="x", padx=10, pady=10)
 
@@ -949,7 +1137,7 @@ stats_label = tk.Label(stats_frame, text="Še ni bilo obdelave CSV datoteke",
                       padx=15, pady=15)
 stats_label.pack(fill="x", padx=5, pady=5)
 
-# ==================== STATUS BAR ====================
+#status bar===============
 status_frame = tk.Frame(window, bg=colors['primary'], height=40)
 status_frame.pack(side="bottom", fill="x")
 status_frame.pack_propagate(False)
@@ -961,14 +1149,13 @@ status_label = tk.Label(status_frame,
                        anchor=tk.W, padx=15)
 status_label.pack(fill="both", expand=True)
 
-# Exit button
+#exit
 exit_frame = tk.Frame(window, bg=colors['light'])
 exit_frame.pack(side="bottom", fill="x", pady=5)
 
 ttk.Button(exit_frame, text="🚪 Izhod", 
           command=exit_application, style="Danger.TButton").pack(pady=10)
 
-# Final setup
 window.protocol("WM_DELETE_WINDOW", exit_application)
 
 if __name__ == "__main__":
