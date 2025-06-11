@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import numpy as np
 import csv
+import math
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import gc
@@ -107,6 +108,62 @@ class AccelerationEconomyModel(nn.Module):
         context_vector = torch.sum(attention_weights * lstm_out, dim=1)
         out = self.classifier(context_vector)
         return out
+
+class DirectionLSTM(nn.Module):
+    def __init__(self, input_size=1, hidden_size=128, output_size=3):
+        super(DirectionLSTM, self).__init__()
+        self.hidden_size = hidden_size
+        self.bidirectional = True
+        self.lstm = nn.LSTM(input_size, hidden_size, batch_first=True, bidirectional=self.bidirectional)
+        self.fc = nn.Linear(hidden_size * 2 if self.bidirectional else hidden_size, output_size)
+
+    def forward(self, x):
+        out, _ = self.lstm(x)
+        out = out[:, -1, :]
+        out = self.fc(out)
+        return out
+
+
+def compute_bearing(lat1, lon1, lat2, lon2):
+    lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
+    d_lon = lon2 - lon1
+    x = math.sin(d_lon) * math.cos(lat2)
+    y = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(d_lon)
+    bearing = math.atan2(x, y)
+    return math.degrees(bearing)
+
+
+def compute_bearing_sequence(coords):
+    bearings = []
+    for i in range(1, len(coords)):
+        lat1, lon1 = coords[i - 1]
+        lat2, lon2 = coords[i]
+        angle = compute_bearing(lat1, lon1, lat2, lon2)
+        bearings.append([angle])
+    return bearings
+
+
+class BearingPredictor:
+    def __init__(self):
+        self.model = None
+
+    def load_model(self, path):
+        self.model = DirectionLSTM()
+        self.model.load_state_dict(torch.load(path, map_location=torch.device('cpu')))
+        self.model.eval()
+
+    def predict(self, coords):
+        bearing_seq = compute_bearing_sequence(coords)
+        if not bearing_seq:
+            raise ValueError("Ni bilo mogoče izračunati bearing sekvence.")
+        input_tensor = torch.tensor([bearing_seq], dtype=torch.float32)
+        with torch.no_grad():
+            output = self.model(input_tensor)
+            probabilities = torch.softmax(output, dim=1)[0]
+            pred = torch.argmax(probabilities).item()
+            confidence = probabilities[pred].item()
+            return pred, confidence
+
 
 #==============skupni prediction
 class UnifiedEconomyPredictor:
@@ -550,6 +607,26 @@ def load_acceleration_model():
             )
             update_status_with_color("Napaka pri nalaganju modela za pospešek", 'error')
 
+def load_bearing_model():
+    filename = filedialog.askopenfilename(
+        title="Izberi bearing model",
+        filetypes=(("PyTorch Model", "*.pt"), ("All files", "*.*"))
+    )
+    if filename:
+        try:
+            bearing_predictor.load_model(filename)
+            move_model_label.config(
+                text=f"✓ Bearing model: {os.path.basename(filename)}",
+                fg=colors['success']
+            )
+            update_status_with_color("Bearing model uspešno naložen", 'success')
+        except Exception as e:
+            move_model_label.config(
+                text=f"✗ Napaka pri nalaganju bearing modela",
+                fg=colors['danger']
+            )
+            update_status_with_color(f"Napaka pri nalaganju bearing modela: {e}", 'error')
+
 def predict_manual():
     try:
         speed_str = speed_input.get("1.0", tk.END).strip()
@@ -585,6 +662,45 @@ def predict_manual():
     except Exception as e:
         messagebox.showerror("Napaka", f"Napaka pri napovedovanju: {e}")
         update_status_with_color(f"Napaka pri napovedovanju: {e}", 'error')
+
+def predict_bearing():
+    try:
+        input_str = move_input.get("1.0", tk.END).strip()
+        if not input_str:
+            raise ValueError("Vnesi vsaj 3 GPS točke (lon, lat)")
+
+        values = list(map(float, input_str.replace(',', ' ').split()))
+        if len(values) < 6 or len(values) % 2 != 0:
+            raise ValueError("Potrebno je vsaj 3 GPS točke (lon,lat)*3")
+
+        coords = [(values[i + 1], values[i]) for i in range(0, len(values), 2)]
+
+        if bearing_predictor.model is None:
+            raise ValueError("Model za smer ni naložen")
+
+        pred, confidence = bearing_predictor.predict(coords)
+
+        descriptions = {
+            0: "Stabilna vožnja (ravna)",
+            1: "Zmerna sprememba smeri",
+            2: "Veliko sprememb smeri",
+        }
+        desc = descriptions.get(pred, "Neznano")
+
+        result_text = f"🧭 BEARING MODEL (smer vožnje):\n"
+        result_text += f"Napovedani razred: {pred} → {desc}\n"
+        result_text += f"Zaupanje modela: {confidence:.2%}\n"
+
+        result_display.config(state='normal')
+        result_display.delete('1.0', tk.END)
+        result_display.insert('1.0', result_text)
+        result_display.config(state='disabled')
+
+        update_status_with_color("Napoved za smer uspešno generirana", 'success')
+
+    except Exception as e:
+        messagebox.showerror("Napaka", f"Napaka pri napovedi smeri: {e}")
+        update_status_with_color(f"Napaka pri napovedi smeri: {e}", 'error')
 
 def generate_output_filename(input_filename):
     base_name = os.path.basename(input_filename)
@@ -892,6 +1008,7 @@ def exit_application():
 
 #===============main gui
 predictor = UnifiedEconomyPredictor()
+bearing_predictor = BearingPredictor()
 
 window = tk.Tk()
 window.title("🚗 Ekonomičnost Vožnje - AI Analiza")
@@ -1012,7 +1129,7 @@ speed_frame.pack(fill="x", pady=10, padx=10)
 
 ttk.Button(speed_frame, text="📈 Naloži Model za Hitrost", 
           command=load_speed_model, style="Primary.TButton").pack(pady=10)
-speed_model_label = tk.Label(speed_frame, text="Model za hitrost: ni naložen", 
+speed_model_label = tk.Label(speed_frame, text="Model za hitrost: ni naložen",
                             fg=colors['danger'], bg=colors['light'],
                             font=("Segoe UI", 11, "bold"))
 speed_model_label.pack(pady=5)
@@ -1027,6 +1144,17 @@ accel_model_label = tk.Label(accel_frame, text="Model za pospešek: ni naložen"
                             fg=colors['danger'], bg=colors['light'],
                             font=("Segoe UI", 11, "bold"))
 accel_model_label.pack(pady=5)
+
+# Acceleration model section
+move_frame = tk.Frame(model_frame, bg=colors['light'])
+move_frame.pack(fill="x", pady=10, padx=10)
+
+ttk.Button(move_frame, text="⚡ Naloži Model za Smer",
+          command=load_bearing_model, style="Primary.TButton").pack(pady=10)
+move_model_label = tk.Label(move_frame, text="Model za smer: ni naložen",
+                            fg=colors['danger'], bg=colors['light'],
+                            font=("Segoe UI", 11, "bold"))
+move_model_label.pack(pady=5)
 
 # Test button
 test_frame = tk.Frame(model_frame, bg=colors['light'])
@@ -1075,9 +1203,38 @@ accel_input.pack(fill="x", padx=10, pady=5)
 button_frame = tk.Frame(input_frame, bg=colors['light'])
 button_frame.pack(fill="x", padx=10, pady=15)
 
+
 ttk.Button(button_frame, text="🎯 Napovej", 
           command=predict_manual, style="Success.TButton").pack(side="left", padx=10)
 ttk.Button(button_frame, text="🗑️ Počisti", 
+          command=clear_inputs, style="Warning.TButton").pack(side="left", padx=10)
+
+
+
+#prediction za smer
+input2_frame = ttk.LabelFrame(predict_tab, text="📝 Vhodni Podatki za smerni model", style="Modern.TLabelframe")
+input2_frame.pack(fill="both", expand=True, padx=15, pady=15)
+
+move_label = tk.Label(input2_frame,
+                      text="⚡ Koordinate (20 vrednosti, ločenih s presledki ali vejicami):",
+                      bg=colors['light'], fg=colors['primary'],
+                      font=("Segoe UI", 12, "bold"))
+move_label.pack(anchor="w", padx=10, pady=(15, 5))
+
+move_input = tk.Text(input2_frame, height=3, width=80,
+                     font=("Consolas", 11),
+                     bg='white', fg=colors['dark'],
+                     borderwidth=2, relief='solid',
+                     highlightthickness=1, highlightcolor=colors['secondary'],
+                     highlightbackground="#d1d5db")
+move_input.pack(fill="x", padx=10, pady=5)
+
+button2_frame = tk.Frame(input2_frame, bg=colors['light'])
+button2_frame.pack(fill="x", padx=10, pady=15)
+
+ttk.Button(button2_frame, text="🎯 Napovej",
+          command=predict_bearing, style="Success.TButton").pack(side="left", padx=10)
+ttk.Button(button2_frame, text="🗑️ Počisti",
           command=clear_inputs, style="Warning.TButton").pack(side="left", padx=10)
 
 #results frame
