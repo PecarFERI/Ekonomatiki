@@ -331,9 +331,8 @@ def generate_animation_js(coordinates, levels):
 
         function createStartButton() {{
             let buttonHtml = `
-                <div id="animationControls" style="position: fixed; top: 20px; right: 20px; z-index: 1000;
-                     background: white; padding: 10px; border-radius: 5px; box-shadow: 0 2px 10px rgba(0,0,0,0.2);">
-                    <button id="startBtn" style="padding: 10px 15px; background: #4CAF50; color: white; 
+                <div id="animationControls" style="position: fixed; top: 20px; right: 20px; z-index: 1000;">
+                    <button id="startBtn" style="padding: 10px 15px; 
                            border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
                         ▶️ Začni animacijo
                     </button>
@@ -398,7 +397,6 @@ def generate_animation_js(coordinates, levels):
         function animationComplete() {{
             isAnimating = false;
             document.getElementById('startBtn').textContent = '🔄 Ponovi animacijo';
-            document.getElementById('startBtn').style.background = '#4CAF50';
             document.getElementById('startBtn').disabled = false;
             map.panTo(coordinates[coordinates.length - 1], {{
                 animate: true,
