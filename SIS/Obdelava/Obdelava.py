@@ -432,9 +432,9 @@ class GPSMappingApp:
 
         difference_amount = 0
 
-        if (len(filtered_speeds) < len(filtered_timestamps)):
+        if len(filtered_speeds) < len(filtered_timestamps):
             difference_amount = len(filtered_timestamps) - len(filtered_speeds)
-        elif (len(filtered_speeds) > len(filtered_timestamps)):
+        elif len(filtered_speeds) > len(filtered_timestamps):
             difference_amount = len(filtered_speeds) - len(filtered_timestamps)
 
         fig, ax = plt.subplots(figsize=(10, 5))
@@ -466,8 +466,6 @@ class GPSMappingApp:
 
         zone_ratings = []
         start_time = filtered_timestamps[0]
-
-        counter_zones = 0
 
         for i in range(1, len(smoothed_speeds)):
             prev_speed = smoothed_speeds[i - 1]
@@ -550,6 +548,7 @@ class GPSMappingApp:
         output_file_path = os.path.join(analysis_dir, output_file_name)
 
         formatted_lines = []
+
         for start_t, end_t, zone in stable_zones:
             start = int(start_t)
             end = int(end_t)
@@ -565,7 +564,6 @@ class GPSMappingApp:
 
         start_time = filtered_timestamps[0]
         seconds = [(ts - start_time).total_seconds() for ts in filtered_timestamps[difference_amount:]]
-        zone_index = 0
 
         with open(output_file_path, "w", newline="") as csvfile:
             csvwriter = csv.writer(csvfile)
