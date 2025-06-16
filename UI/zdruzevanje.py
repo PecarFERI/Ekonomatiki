@@ -1225,14 +1225,14 @@ predict_tab = ttk.Frame(notebook, style='Modern.TFrame')
 notebook.add(predict_tab, text="🎯 Napovedi")
 
 input_frame = ttk.LabelFrame(predict_tab, text="📝 Vhodni Podatki", style="Modern.TLabelframe")
-input_frame.pack(fill="both", expand=True, padx=15, pady=15)
+input_frame.pack(fill="x", padx=15, pady=(15, 5))
 
 # Speed input
 speed_label = tk.Label(input_frame, 
                       text="🚗 Hitrost (20 vrednosti, ločenih s presledki ali vejicami):",
                       bg=colors['light'], fg=colors['primary'],
-                      font=("Segoe UI", 12, "bold"))
-speed_label.pack(anchor="w", padx=10, pady=(10, 5))
+                      font=("Segoe UI", 11, "bold"))
+speed_label.pack(anchor="w", padx=10, pady=(5, 2))
 
 speed_input = tk.Text(input_frame, height=3, width=80,
                      font=("Consolas", 11),
@@ -1240,14 +1240,14 @@ speed_input = tk.Text(input_frame, height=3, width=80,
                      borderwidth=2, relief='solid',
                      highlightthickness=1, highlightcolor=colors['secondary'],
                      highlightbackground="#d1d5db")
-speed_input.pack(fill="x", padx=10, pady=5)
+speed_input.pack(fill="x", padx=10, pady=2)
 
 # Acceleration input
 accel_label = tk.Label(input_frame, 
                       text="⚡ Pospešek (20 vrednosti, ločenih s presledki ali vejicami):",
                       bg=colors['light'], fg=colors['primary'],
-                      font=("Segoe UI", 12, "bold"))
-accel_label.pack(anchor="w", padx=10, pady=(15, 5))
+                      font=("Segoe UI", 11, "bold"))
+accel_label.pack(anchor="w", padx=10, pady=(5, 2))
 
 accel_input = tk.Text(input_frame, height=3, width=80,
                      font=("Consolas", 11),
@@ -1255,11 +1255,11 @@ accel_input = tk.Text(input_frame, height=3, width=80,
                      borderwidth=2, relief='solid',
                      highlightthickness=1, highlightcolor=colors['secondary'],
                      highlightbackground="#d1d5db")
-accel_input.pack(fill="x", padx=10, pady=5)
+accel_input.pack(fill="x", padx=10, pady=2)
 
 #button frame
 button_frame = tk.Frame(input_frame, bg=colors['light'])
-button_frame.pack(fill="x", padx=10, pady=15)
+button_frame.pack(fill="x", padx=10, pady=(5, 15))
 
 
 ttk.Button(button_frame, text="🎯 Napovej", 
@@ -1271,24 +1271,24 @@ ttk.Button(button_frame, text="🗑️ Počisti",
 
 #prediction za smer
 input2_frame = ttk.LabelFrame(predict_tab, text="📝 Vhodni Podatki za smerni model", style="Modern.TLabelframe")
-input2_frame.pack(fill="both", expand=True, padx=15, pady=15)
+input2_frame.pack(fill="both", expand=True, padx=15, pady=5)
 
 move_label = tk.Label(input2_frame,
                       text="⚡ Koordinate (20 vrednosti, ločenih s presledki ali vejicami):",
                       bg=colors['light'], fg=colors['primary'],
-                      font=("Segoe UI", 12, "bold"))
-move_label.pack(anchor="w", padx=10, pady=(15, 5))
+                      font=("Segoe UI", 11, "bold"))
+move_label.pack(anchor="w", padx=10, pady=(5, 2))
 
 move_input = tk.Text(input2_frame, height=3, width=80,
-                     font=("Consolas", 11),
+                     font=("Consolas", 10),
                      bg='white', fg=colors['dark'],
                      borderwidth=2, relief='solid',
                      highlightthickness=1, highlightcolor=colors['secondary'],
                      highlightbackground="#d1d5db")
-move_input.pack(fill="x", padx=10, pady=5)
+move_input.pack(fill="x", padx=10, pady=2)
 
 button2_frame = tk.Frame(input2_frame, bg=colors['light'])
-button2_frame.pack(fill="x", padx=10, pady=15)
+button2_frame.pack(fill="x", padx=10, pady=(5, 15))
 
 ttk.Button(button2_frame, text="🎯 Napovej",
           command=predict_bearing, style="Success.TButton").pack(side="left", padx=10)
@@ -1297,7 +1297,7 @@ ttk.Button(button2_frame, text="🗑️ Počisti",
 
 #results frame
 result_frame = ttk.LabelFrame(predict_tab, text="📊 Rezultati Analize", style="Modern.TLabelframe")
-result_frame.pack(fill="both", expand=True, padx=15, pady=15)
+result_frame.pack(fill="x", padx=10, pady=(5, 15))
 
 result_display = tk.Text(result_frame, height=15, width=80, state='disabled',
                         font=("Segoe UI", 11),
@@ -1307,7 +1307,7 @@ result_display = tk.Text(result_frame, height=15, width=80, state='disabled',
 result_scroll = ttk.Scrollbar(result_frame, orient="vertical", command=result_display.yview)
 result_display.configure(yscrollcommand=result_scroll.set)
 result_scroll.pack(side="right", fill="y")
-result_display.pack(fill="both", expand=True, padx=10, pady=10)
+result_display.pack(fill="both", expand=True, padx=15, pady=15)
 
 #=========csv tab
 csv_tab = ttk.Frame(notebook, style='Modern.TFrame')
